@@ -6,7 +6,7 @@ void highSpeedCompensation(cuComplex* d_data, int Fs, long long band_width, floa
 
 	thrust::device_vector<float> tk(range_num);  // fast time vector: tk=[0:N-1]/fs
 	thrust::sequence(thrust::device, tk.begin(), tk.end(), 0.0f);
-	thrust::transform(thrust::device, tk.begin(), tk.end(), tk.begin(), [=]__host__ __device__(const float& x) { return x / float(Fs); });
+	thrust::transform(thrust::device, tk.begin(), tk.end(), tk.begin(), [=]__host__ __device__(const float& x) { return x / static_cast<float>(Fs); });
 	float* d_tk = reinterpret_cast<float*>(thrust::raw_pointer_cast(tk.data()));  // type cast: thrust -> float
 	
 	thrust::device_vector<float> tk2(range_num);  // calculate tk^2
@@ -32,7 +32,7 @@ void highSpeedCompensation(cuComplex* d_data, int Fs, long long band_width, floa
 	thrust::device_vector<float> thr_phase(thr_v_mul_tk2, thr_v_mul_tk2 + data_num);
 
 	thrust::device_vector<comThr> thr_phi(data_num);
-	thrust::transform(thrust::device, thr_phase.begin(), thr_phase.end(), thr_phi.begin(), []__host__ __device__(const float& x) { return thrust::exp(comThr(0.0, x)); });
+	thrust::transform(thrust::device, thr_phase.begin(), thr_phase.end(), thr_phi.begin(), []__host__ __device__(const float& x) { return thrust::exp(comThr(0.0f, x)); });
 
 	thrust::device_ptr<comThr> thr_d_data = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_data));
 	thrust::transform(thrust::device, thr_d_data, thr_d_data + data_num, thr_phi.begin(), thr_d_data, \

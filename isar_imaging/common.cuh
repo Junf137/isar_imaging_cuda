@@ -1,6 +1,8 @@
 ﻿#ifndef COMMON_H_
 #define COMMON_H_
 
+//#define DATA_WRITE_BACK
+
 // cuda runtime
 #include "cuda_runtime.h"
 #include "device_launch_parameters.h"
@@ -65,30 +67,27 @@ struct RadarParameters
 
 
 /// <summary>
-/// 计算两个复数向量相乘
-/// result_matrix = vec1 * vec2.';
-/// result_matrix以列主序存储（例如，m * n大小的矩阵，内存里是一列一列依次存入）
-/// vec1和vec2都是thrust的向量
+/// result_matrix = alpah * vec1 * vec2.' + result_matrix;
+/// for cuComplex number.
 /// </summary>
-/// <param name="handle"> cublas库的句柄 </param>
-/// <param name="result_matrix"> 存放结果的矩阵, (数据格式: 列主序存放) </param>
-/// <param name="vec1">  第一个参与计算的向量, 长度为m </param>
-/// <param name="vec2"> 第二个参与计算的向量, 长度为n </param>
-/// <param name="m"></param>
-/// <param name="n"></param>
-void vectorMulvectorCublasC(cublasHandle_t handle, cuComplex* result_matrix, thrust::device_vector<comThr>& vec1, thrust::device_vector<comThr>& vec2, int m, int n);
+/// <param name="handle"> cublas handle </param>
+/// <param name="result_matrix"> multiply result matrix of size m * n (store in column major) </param>
+/// <param name="vec1">  vector of length m </param>
+/// <param name="vec2"> vecto of length n </param>
+/// <param name="alpha"> alpha can be in host or device memory </param>
+void vecMulvec(cublasHandle_t handle, cuComplex* result_matrix, thrust::device_vector<comThr>& vec1, thrust::device_vector<comThr>& vec2, const cuComplex& alpha);
 
 
 /// <summary>
-/// same as vectorMulvectorCublasC
+/// result_matrix = alpah * vec1 * vec2.' + result_matrix;
+/// for float number.
 /// </summary>
-/// <param name="handle"></param>
-/// <param name="result_matrix"></param>
-/// <param name="vec1"></param>
-/// <param name="vec2"></param>
-/// <param name="m"></param>
-/// <param name="n"></param>
-void vectorMulvectorCublasf(cublasHandle_t handle, float* result_matrix, thrust::device_vector<float>& vec1, thrust::device_vector<float>& vec2, int m, int n);
+/// <param name="handle"> cublas handle </param>
+/// <param name="result_matrix"> multiply result matrix of size m * n (store in column major) </param>
+/// <param name="vec1">  vector of length m </param>
+/// <param name="vec2"> vecto of length n </param>
+/// <param name="alpha"> alpha can be in host or device memory </param>
+void vecMulvec(cublasHandle_t handle, float* result_matrix, thrust::device_vector<float>& vec1, thrust::device_vector<float>& vec2, const float& alpha);
 
 
 /// <summary>
@@ -161,7 +160,7 @@ void genFFTShiftVec(thrust::device_vector<int>& fftshift_vec);
 /// <param name="d_data"> 回波数据 </param>
 /// <param name="echo_num"> 慢时间(方位向)点数 </param>
 /// <param name="range_num"> 快时间点数 </param>
-void getHRRP(cuComplex* d_data, unsigned int echo_num, unsigned int range_num);
+void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const int& echo_num, const int& range_num, const thrust::device_vector<int>& fftshift_vec);
 
 
 
@@ -199,33 +198,49 @@ int turnAngleLine(std::vector<float>* turnAngle, const std::vector<float>& azimu
 /// <returns></returns>
 float interpolate(const std::vector<int>& xData, const std::vector<float>& yData, const int& x, const bool& extrapolate);
 
+
 // [flag_data_end DataW_FileSn DataNOut TurnAngleOut] = UniformitySampling(DataN, TurnAngle, CQ, WindowHead, WindowLength)
 int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FLOAT* dataNOut, std::vector<float>* turnAngleOut, \
 	const vec2D_FLOAT& dataN, const std::vector<float>& turnAngle, const int& CQ, const int& windowHead, const int& windowLength);
+
 
 //function [flag_data_end DataW_FileSn DataNOut TurnAngleOut] = NonUniformitySampling(DataN, RadarParameters, TurnAngle, start, M)
 int nonUniformSamplingFun();
 
 
-// io class
+/* ioOperation Class */
 class ioOperation
 {
+private:
+	std::string m_dirPath;
+	std::string m_filePath;
+	int m_fileType;  // file polar type
+
 public:
+	ioOperation(const std::string& dirPath, const int& fileType);
 
-	int getFilePath(std::string* filePath, const std::string& dirPath, const int& fileType);
+	~ioOperation();
 
-	int getSystemParasFirstFileStretch(RadarParameters* paras, int* frameLength, int* frameNum, const std::string& filePath, const int& fileType);
+	int getSystemParasFirstFileStretch(RadarParameters* paras, int* frameLength, int* frameNum);
 
 	int readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, int* pulse_num_all, \
-		const RadarParameters& paras, const int& frameLength, const int& frameNum, const std::string& filePath, const int& fileType);
+		const RadarParameters& paras, const int& frameLength, const int& frameNum);
 
 	int getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FLOAT* dataNOut, std::vector<float>* turnAngleOut, \
 		const vec2D_FLOAT& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& CQ, const int& windowHead, const int& windowLength, const bool& nonUniformSampling);
 
 	int getKuDataStretch(vec1D_COM_FLOAT* dataW, std::vector<int>* frameHeader, \
-		const std::string& filePath, const vec2D_INT& stretchIndex, const std::vector<int>& dataWFileSn);
+		const vec2D_INT& stretchIndex, const std::vector<int>& dataWFileSn);
 
-	int WriteFile(const std::string& path, const std::complex<float>* data, const  size_t& data_size);
+	/// <summary>
+	/// write d_data reside in CPU memory back to outFilePath
+	/// </summary>
+	static int writeFile(const std::string& outFilePath, const std::complex<float>* data, const  size_t& data_size);
+
+	/// <summary>
+	/// write d_data reside in GPU memory back to outFilePath
+	/// </summary>
+	static int dataWriteBack(const std::string& outFilePath, const cuComplex* d_data, const  size_t& data_size);
 };
 
 #endif // COMMON_H_

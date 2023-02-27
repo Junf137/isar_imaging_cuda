@@ -17,7 +17,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	auto tStart_LoadingData = std::chrono::high_resolution_clock::now();
 
 	const std::complex<float>* h_data = dataW.data();
-	int num_data = paras.num_echoes * paras.num_range_bins;
+	int data_num = paras.num_echoes * paras.num_range_bins;
 
 	// Overall cuBlas handle
 	cublasHandle_t handle;
@@ -25,14 +25,19 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 
 	//GPU memory mallocation
 	cuComplex* d_data = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * num_data));
-	checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(cuComplex) * num_data, cudaMemcpyHostToDevice));  // data (host -> device)
+	checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * data_num));
+	checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(cuComplex) * data_num, cudaMemcpyHostToDevice));  // data (host -> device)
 	thrust::device_ptr<comThr> thr_d_data = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_data));
 
 	auto tEnd_LoadingData = std::chrono::high_resolution_clock::now();
 	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(tEnd_LoadingData - tStart_LoadingData).count() << "ms\n";
 	std::cout << "---* Load Echo Data Over *---\n";
 	std::cout << "************************************\n\n";
+
+
+#ifdef DATA_WRITE_BACK
+	ioOperation::dataWriteBack(std::string(DIR_PATH) + "dataW.dat", d_data, data_num);
+#endif // DATA_WRITE_BACK
 
 
 	/******************************
@@ -43,7 +48,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 		auto tStart_HPC = std::chrono::high_resolution_clock::now();
 
 		float* h_velocity = new float[paras.num_echoes];
-		std::transform(dataNOut.cbegin(), dataNOut.cend(), h_velocity, [](std::vector<float> v) {return v[1]; });
+		std::transform(dataNOut.cbegin(), dataNOut.cend(), h_velocity, [](const std::vector<float>& v) {return v[1]; });
 
 		highSpeedCompensation(d_data, paras.Fs, paras.band_width, paras.Tp, h_velocity, paras.num_echoes, paras.num_range_bins, handle);
 		checkCudaErrors(cudaDeviceSynchronize());
@@ -58,19 +63,24 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	}
 
 
+#ifdef DATA_WRITE_BACK
+	ioOperation::dataWriteBack(std::string(DIR_PATH) + "hpc.dat", d_data, data_num);
+#endif // DATA_WRITE_BACK
+
+
 	/******************
 	 * HRRP
 	 ******************/
 	std::cout << "---* Starting Get HRRP *---\n";
 	auto tStart_HRRP = std::chrono::high_resolution_clock::now();
 
-	// fft shift in time domain
-	thrust::device_vector<int> fftshift_vec(num_data);
+	thrust::device_vector<int> fftshift_vec(data_num);
 	genFFTShiftVec(fftshift_vec);
-	thrust::transform(thrust::device, thr_d_data, thr_d_data + num_data, fftshift_vec.begin(), thr_d_data, \
-		[]__host__ __device__(const comThr& x, const int& y) { return x * static_cast<float>(y); });
 
-	getHRRP(d_data, paras.num_echoes, paras.num_range_bins); // HRRP - High Resolution Range Profile
+	// HRRP - High Resolution Range Profile. 
+	cuComplex* d_hrrp = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * data_num));
+	getHRRP(d_hrrp, d_data, paras.num_echoes, paras.num_range_bins, fftshift_vec);  // d_hrrp = fftshift(fft(d_data))
 
 	checkCudaErrors(cudaDeviceSynchronize());
 
@@ -82,17 +92,17 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 
 
 	/******************
-	 * 包络对齐以及距离像序列平移
+	 * Range Alignment and HRRP Centering
 	 ******************/
 	// Range Alignment
 	std::cout << "---* Starting Range alignment *---\n";
 	auto tStart_RA = std::chrono::high_resolution_clock::now();
 
-	RangeAlignment_linej(d_data, paras, fftshift_vec);
+	RangeAlignment_linej(d_data, paras, fftshift_vec, handle);
 
 	// HRRPCenter
 	unsigned int inter_length = 30;
-	HRRPCenter(d_data, paras, inter_length);
+	HRRPCenter(d_data, paras, inter_length, handle);
 
 	checkCudaErrors(cudaDeviceSynchronize());
 
@@ -119,7 +129,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	checkCudaErrors(cudaMalloc((void**)&range_abs, sizeof(float)* paras.num_range_bins));
 	thrust::device_ptr<float> thr_range_abs(range_abs);
 	thrust::transform(thrust::device, thr_d_data, thr_d_data + paras.num_range_bins, thr_range_abs,
-		[]__host__ __device__(thrust::complex<float> x) { return thrust::abs(x); });
+		[]__host__ __device__(const thrust::complex<float>& x) { return thrust::abs(x); });
 	thrust::device_ptr<float> min_ptr = thrust::max_element(thr_range_abs, thr_range_abs + paras.num_range_bins);
 
 	int mPos = static_cast<int>(&min_ptr[0] - &thr_range_abs[0]);
@@ -137,7 +147,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 
 	checkCudaErrors(cudaFree(d_data));  // use d_data_cut instead
 	paras.num_range_bins = range_length;  // modify paras value
-	num_data = paras.num_echoes * paras.num_range_bins;
+	data_num = paras.num_echoes * paras.num_range_bins;
 
 
 	/**********************
@@ -179,18 +189,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	Fast_Entropy(d_data_cut, paras);
 
 
-	// data transfer from GPU to CPU
-	std::complex<float>* h_data_cut = new std::complex<float>[num_data];
-	checkCudaErrors(cudaMemcpy(h_data_cut, d_data_cut, sizeof(cuComplex) * num_data, cudaMemcpyDeviceToHost));  // data (device -> host)
-	std::vector<std::complex<float>> h_data_cut_vec(h_data_cut, h_data_cut + num_data);
-
-	// wtire to file
-	ioOperation io;
-	std::string path_out(DIR_PATH);
-	path_out.append("test.dat");
-	io.WriteFile(path_out, h_data_cut, num_data);
-	delete[] h_data_cut;
-	h_data_cut = NULL;
+	ioOperation::dataWriteBack(std::string(DIR_PATH) + "isar_image.dat", d_data_cut, data_num);
 
 
 	delete[] h_azimuth;

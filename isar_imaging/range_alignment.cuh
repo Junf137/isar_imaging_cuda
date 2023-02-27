@@ -10,7 +10,8 @@
 /// <param name="data"> 距离像序列，存放在设备上（数据格式：慢时间* 快时间，行主序存放） </param>
 /// <param name="paras"> 雷达参数结构体 </param>
 /// <param name="shift_vec"> fftshift vector </param>
-void RangeAlignment_linej(cuComplex* data, RadarParameters paras, thrust::device_vector<int>& shift_vec);
+/// <param name="handle">  </param>
+void RangeAlignment_linej(cuComplex* d_data, RadarParameters paras, thrust::device_vector<int>& fftshift_vec, cublasHandle_t handle);
 
 
 /// <summary>
@@ -37,8 +38,9 @@ float BinomialFix(thrust::device_vector<float>& vec_Corr, int maxPos);
 /// </summary>
 /// <param name="data"> 距离像序列，存放在设备上（数据格式：慢时间* 快时间，行主序存放） </param>
 /// <param name="paras"> 雷达参数结构体 </param>
-/// <param name="inter_length"></param>
-void HRRPCenter(cuComplex* data, RadarParameters paras, const int inter_length);
+/// <param name="inter_length">  </param>
+/// <param name="handle">  </param>
+void HRRPCenter(cuComplex* data, RadarParameters paras, const int inter_length, cublasHandle_t handle);
 
 /// <summary>
 /// GPU核函数，根据索引值附近ARP均值剔除野值. (参考: HRRPCenter.m)

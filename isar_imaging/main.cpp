@@ -3,15 +3,7 @@
 
 int main()
 {
-    ioOperation* io = new ioOperation;
-
-    const std::string dirPath(DIR_PATH);
-    std::string filePath;
-    const int fileType = 1;  // file polar type
-    RadarParameters paras{};
-    int frameLength = 0;
-    int frameNum = 0;
-    io->getFilePath(&filePath, dirPath, fileType);
+    ioOperation* io = new ioOperation(DIR_PATH, 1);
 
     /******************************
     * pre processing data
@@ -19,13 +11,16 @@ int main()
     std::cout << "---* Starting Pre Processing *---\n";
     auto tStart_PreProcessing = std::chrono::high_resolution_clock::now();
 
-    io->getSystemParasFirstFileStretch(&paras, &frameLength, &frameNum, filePath, fileType);
+    RadarParameters paras{};
+    int frameLength = 0;
+    int frameNum = 0;
+    io->getSystemParasFirstFileStretch(&paras, &frameLength, &frameNum);
 
     vec2D_FLOAT dataN;
     vec2D_INT stretchIndex;
     std::vector<float> turnAngle;
     int pulse_num_all = 0;
-    io->readKuIFDSALLNBStretch(&dataN, &stretchIndex, &turnAngle, &pulse_num_all, paras, frameLength, frameNum, filePath, fileType);
+    io->readKuIFDSALLNBStretch(&dataN, &stretchIndex, &turnAngle, &pulse_num_all, paras, frameLength, frameNum);
 
     int CQ = 1;
     int windowHead = 10 - 1;
@@ -39,7 +34,7 @@ int main()
 
     vec1D_COM_FLOAT dataW;
     std::vector<int> frameHeader;
-    io->getKuDataStretch(&dataW, &frameHeader, filePath, stretchIndex, dataWFileSn);
+    io->getKuDataStretch(&dataW, &frameHeader, stretchIndex, dataWFileSn);
     paras.num_echoes = static_cast<int>(dataWFileSn.size());
     paras.num_range_bins = static_cast<int>(dataW.size()) / paras.num_echoes;
 

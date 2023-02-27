@@ -154,7 +154,7 @@ void RangeVariantPhaseComp(cuComplex* d_data, RadarParameters paras, float* azim
 	checkCudaErrors(cublasCreate(&handle));
 	//vectorMulvectorCublasf(handle, comp_mat, theta, range, paras.num_echoes, paras.num_range_bins);
 	// 08-05-2020 修改
-	vectorMulvectorCublasf(handle, comp_mat, range, theta, paras.num_range_bins, paras.num_echoes);
+	vecMulvec(handle, comp_mat, range, theta, 1.0f);
 	thrust::device_ptr<float>thr_comp_mat(comp_mat);
 	//thrust::device_vector<comThr>comp_phase(paras.num_echoes*paras.num_range_bins);
 	comThr* thr_data_temp = reinterpret_cast<comThr*>(d_data);
@@ -331,14 +331,14 @@ void Fast_Entropy(cuComplex* d_data, RadarParameters paras)
 	/************************************
 	* this kernel needs to be improved *
 	************************************/
-	cuComplex* newData;
+	cuComplex* newData = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&newData, sizeof(cuComplex) * num_unit2 * NumEcho));
 	unsigned int blockSize = num_unit2;
 	unsigned int gridSize = NumEcho;
 	dim3 block(blockSize);
 	dim3 grid(gridSize);
 
-	Select_Rangebins << <grid, block >> > (newData, d_data, select_bin, NumEcho, NumRange, num_unit2);
+	Select_Rangebins <<<grid, block >>> (newData, d_data, select_bin, NumEcho, NumRange, num_unit2);
 
 	// * doppler phase tracking
 	isNeedCompensation = 0;
@@ -348,7 +348,7 @@ void Fast_Entropy(cuComplex* d_data, RadarParameters paras)
 	// * minimum entropy searching
 	int search_num = 100;  // iteration numbers
 
-	cuComplex* d_tempData;    // tmpData (cuComplex and thrust)
+	cuComplex* d_tempData = nullptr;    // tmpData (cuComplex and thrust)
 	checkCudaErrors(cudaMalloc((void**)&d_tempData, NumEcho * num_unit2 * sizeof(cuComplex)));
 	comThr* thr_Temp = reinterpret_cast<comThr*>(d_tempData);
 	thrust::device_ptr<comThr>thr_tempData = thrust::device_pointer_cast(thr_Temp);
@@ -361,12 +361,8 @@ void Fast_Entropy(cuComplex* d_data, RadarParameters paras)
 	thrust::device_vector<comThr>thr_rowSum(num_unit2, comThr(1.0f, 0.0f));    // all ones vector for sum(*,2)
 	cuComplex* d_rowSum = reinterpret_cast<cuComplex*>(thrust::raw_pointer_cast(thr_rowSum.data()));
 
-	cuComplex alpha_c;
-	alpha_c.x = 1.0f;
-	alpha_c.y = 0.0f;
-	cuComplex beta_c;
-	beta_c.x = 0.0f;
-	beta_c.y = 0.0f;
+	cuComplex alpha_c = make_cuComplex(1.0f, 0.0f);
+	cuComplex beta_c = make_cuComplex(0.0f, 0.0f);
 
 	int blockSize_com = 64;    // set block and grid for phase compensation
 	//int minGridSize_com;
@@ -394,7 +390,7 @@ void Fast_Entropy(cuComplex* d_data, RadarParameters paras)
 	Elementwise_normalize op_en;
 	for (int ii = 0; ii < search_num; ii++) {
 
-		Compensate_Phase << <grid_com, block_com >> > (d_tempData, d_phi, newData, NumEcho, num_unit2);
+		Compensate_Phase <<<grid_com, block_com >>> (d_tempData, d_phi, newData, NumEcho, num_unit2);
 
 		checkCudaErrors(cufftExecC2C(plan, (cufftComplex*)d_tempData, (cufftComplex*)d_tempData, CUFFT_FORWARD));
 
@@ -413,7 +409,7 @@ void Fast_Entropy(cuComplex* d_data, RadarParameters paras)
 	gridSize_com = (NumRange * NumEcho + blockSize_com - 1) / blockSize_com;
 	dim3 grid_com2(gridSize_com);
 	dim3 block_com2(blockSize_com);
-	Compensate_Phase << <grid_com2, block_com2 >> > (d_data, d_phi, d_data, NumEcho, NumRange);
+	Compensate_Phase <<<grid_com2, block_com2 >>> (d_data, d_phi, d_data, NumEcho, NumRange);
 
 
 	//checkCudaErrors(cublasCgeam(handle, CUBLAS_OP_T, CUBLAS_OP_T, paras.num_echoes, paras.num_range_bins, &alpha_trans_data,
@@ -489,7 +485,7 @@ void Doppler_Tracking2(cuComplex* d_preComData, cuComplex* d_Data, int NumEcho, 
 		dim3 grid(gridSize);
 		dim3 block(blockSize);
 
-		Compensate_Phase << <grid, block >> > (d_preComData, d_phaseC, d_Data, NumEcho, NumRange);
+		Compensate_Phase <<<grid, block >>> (d_preComData, d_phaseC, d_Data, NumEcho, NumRange);
 	}
 }
 

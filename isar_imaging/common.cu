@@ -1,60 +1,22 @@
 ﻿#include "common.cuh"
 
 
-void cutRangeProfile(cuComplex* d_data, cuComplex* d_data_out, const int range_length, RadarParameters& Paras)
+void vecMulvec(cublasHandle_t handle, cuComplex* result_matrix, thrust::device_vector<comThr>& vec1, thrust::device_vector<comThr>& vec2, const cuComplex& alpha)
 {
-	// 首先进行类型转换:cuComplex->thrust
-	comThr* thr_data_temp = reinterpret_cast<comThr*>(d_data);
-	thrust::device_ptr<comThr>thr_data = thrust::device_pointer_cast(thr_data_temp);
-	comThr* thr_data_out_temp = reinterpret_cast<comThr*>(d_data_out);
-	thrust::device_ptr<comThr>thr_data_out = thrust::device_pointer_cast(thr_data_out_temp);
+	int m = vec1.size();
+	int n = vec2.size();
 
-	// 由于输入数据格式，这里只需选出相应的回波
-	//int start_echo = Paras.num_range_bins / 2 - range_length / 2;
-	int start_echo = Paras.Pos - range_length / 2;
-	if (start_echo < 0)
-	{
-		std::cout << "There is a problem on cutting the range/////\n" << std::endl;
-		system("pause");
-		exit(EXIT_FAILURE);
-	}
-	//int end_echo = Paras.num_range_bins / 2 + range_length / 2 - 1;
-	//thrust::copy(thrust::device, thr_data + start_echo*Paras.num_echoes, thr_data + (end_echo + 1)*Paras.num_echoes,thr_data_out);
-
-	// 08-05-2020修改，尚未验证
-	//--
-	const int num_ori_elements = Paras.num_range_bins;
-	const int data_size = Paras.num_echoes * range_length;
-
-	const int block_size = 128;
-	const int grid_size = (data_size + block_size - 1) / block_size;
-
-	dim3 block(block_size);
-	dim3 grid(grid_size);
-
-	cutRangeProfileHelper <<<grid, block >>> (d_data, d_data_out, data_size, start_echo, range_length, num_ori_elements);
-	//--
-}
-
-
-void vectorMulvectorCublasC(cublasHandle_t handle, cuComplex* result_matrix, thrust::device_vector<comThr>& vec1, thrust::device_vector<comThr>& vec2, int m, int n)
-{
-	cuComplex alpha{};  // todo: ???
-	alpha.x = 1.0f;
-	alpha.y = 0.0f;
-	// step 1: type convert
 	cuComplex* d_vec1 = reinterpret_cast<cuComplex*>(thrust::raw_pointer_cast(vec1.data()));
 	cuComplex* d_vec2 = reinterpret_cast<cuComplex*>(thrust::raw_pointer_cast(vec2.data()));
 
-	// step 2: execute multiplication
 	checkCudaErrors(cublasCgeru(handle, m, n, &alpha, d_vec1, 1, d_vec2, 1, result_matrix, m));
 }
 
 
-void vectorMulvectorCublasf(cublasHandle_t handle, float* result_matrix, thrust::device_vector<float>& vec1, thrust::device_vector<float>& vec2, int m, int n)
+void vecMulvec(cublasHandle_t handle, float* result_matrix, thrust::device_vector<float>& vec1, thrust::device_vector<float>& vec2, const float& alpha)
 {
-	float alpha;
-	alpha = 1.0;
+	int m = vec1.size();
+	int n = vec2.size();
 
 	float* d_vec1 = reinterpret_cast<float*>(thrust::raw_pointer_cast(vec1.data()));
 	float* d_vec2 = reinterpret_cast<float*>(thrust::raw_pointer_cast(vec2.data()));
@@ -91,6 +53,42 @@ void getMaxInColumns(thrust::device_vector<float>& c, thrust::device_vector<floa
 }
 
 
+void cutRangeProfile(cuComplex* d_data, cuComplex* d_data_out, const int range_length, RadarParameters& Paras)
+{
+	// 首先进行类型转换:cuComplex->thrust
+	comThr* thr_data_temp = reinterpret_cast<comThr*>(d_data);
+	thrust::device_ptr<comThr>thr_data = thrust::device_pointer_cast(thr_data_temp);
+	comThr* thr_data_out_temp = reinterpret_cast<comThr*>(d_data_out);
+	thrust::device_ptr<comThr>thr_data_out = thrust::device_pointer_cast(thr_data_out_temp);
+
+	// 由于输入数据格式，这里只需选出相应的回波
+	//int start_echo = Paras.num_range_bins / 2 - range_length / 2;
+	int start_echo = Paras.Pos - range_length / 2;
+	if (start_echo < 0)
+	{
+		std::cout << "There is a problem on cutting the range/////\n" << std::endl;
+		system("pause");
+		exit(EXIT_FAILURE);
+	}
+	//int end_echo = Paras.num_range_bins / 2 + range_length / 2 - 1;
+	//thrust::copy(thrust::device, thr_data + start_echo*Paras.num_echoes, thr_data + (end_echo + 1)*Paras.num_echoes,thr_data_out);
+
+	// 08-05-2020修改，尚未验证
+	//--
+	const int num_ori_elements = Paras.num_range_bins;
+	const int data_size = Paras.num_echoes * range_length;
+
+	const int block_size = 128;
+	const int grid_size = (data_size + block_size - 1) / block_size;
+
+	dim3 block(block_size);
+	dim3 grid(grid_size);
+
+	cutRangeProfileHelper <<<grid, block >>> (d_data, d_data_out, data_size, start_echo, range_length, num_ori_elements);
+	//--
+}
+
+
 __global__ void cutRangeProfileHelper(cuComplex* d_in, cuComplex* d_out, const int data_size,
 	const int offset, const int num_elements, const int num_ori_elements)
 {
@@ -99,6 +97,7 @@ __global__ void cutRangeProfileHelper(cuComplex* d_in, cuComplex* d_out, const i
 		return;
 	d_out[idx] = d_in[(idx / num_elements) * num_ori_elements + offset + idx % num_elements];
 }
+
 
 int nextPow2(int N) {
 	int n = 1;
@@ -110,6 +109,7 @@ int nextPow2(int N) {
 	return n;
 }
 
+
 __global__ void setNumInArray(int* arrays, int* index, int set_num, int num_index)
 {
 	unsigned int tid = threadIdx.x + blockDim.x * blockIdx.x;
@@ -118,6 +118,7 @@ __global__ void setNumInArray(int* arrays, int* index, int set_num, int num_inde
 	arrays[index[tid]] = set_num;
 }
 
+
 void genFFTShiftVec(thrust::device_vector<int>& fftshift_vec) {
 	thrust::sequence(thrust::device, fftshift_vec.begin(), fftshift_vec.end(), 0);
 	thrust::transform(thrust::device, fftshift_vec.begin(), fftshift_vec.end(), fftshift_vec.begin(), \
@@ -125,14 +126,19 @@ void genFFTShiftVec(thrust::device_vector<int>& fftshift_vec) {
 }
 
 
-void getHRRP(cuComplex* d_data, unsigned int echo_num, unsigned int range_num)
+void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const int& echo_num, const int& range_num, const thrust::device_vector<int>& fftshift_vec)
 {
+	int data_num = echo_num * range_num;
+
+	thrust::device_ptr<comThr> thr_d_hrrp = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_hrrp));
+	thrust::device_ptr<comThr> thr_d_data = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_data));
+
+	thrust::transform(thrust::device, thr_d_data, thr_d_data + data_num, fftshift_vec.begin(), thr_d_hrrp, \
+		[]__host__ __device__(const comThr & x, const int& y) { return x * static_cast<float>(y); });  // fftshift
+
 	cufftHandle plan;
-
 	checkCudaErrors(cufftPlan1d(&plan, range_num, CUFFT_C2C, echo_num));
-
-	checkCudaErrors(cufftExecC2C(plan, d_data, d_data, CUFFT_FORWARD));
-
+	checkCudaErrors(cufftExecC2C(plan, d_hrrp, d_hrrp, CUFFT_FORWARD));  // fft(d_hrrp)
 	checkCudaErrors(cufftDestroy(plan));
 }
 
@@ -295,12 +301,14 @@ int nonUniformSamplingFun() {
 }
 
 
-// ioOperation
-int ioOperation::getFilePath(std::string* filePath, const std::string& dirPath, const int& fileType) {
-	fs::directory_entry fsDirPath(dirPath);
+/* ioOperation Class */
+ioOperation::ioOperation(const std::string& dirPath, const int& fileType) :
+	m_dirPath(dirPath), m_fileType(fileType)
+{
+	fs::directory_entry fsDirPath(m_dirPath);
 	if (fsDirPath.is_directory() == false) {
 		std::cout << "Invalid directory name!\n";
-		return EXIT_FAILURE;
+		return;
 	}
 
 	const std::vector<std::string> FILE_TYPE = { "00_1100.wbd" , "00_1101.wbd" };
@@ -308,22 +316,23 @@ int ioOperation::getFilePath(std::string* filePath, const std::string& dirPath, 
 		std::string fileStr = it.path().string();
 
 		if (fileStr.substr(fileStr.length() - 11) == FILE_TYPE[fileType]) {
-			*filePath = fileStr;
-			std::cout << "---* " << *filePath << " *---\n\n";
-			return EXIT_SUCCESS;
+			m_filePath = fileStr;
+			std::cout << "---* " << m_filePath << " *---\n\n";
+			return;
 		}
 	}
-
-	return EXIT_FAILURE;
 }
 
-int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* frameLength, int* frameNum, \
-	const std::string& filePath, const int& fileType)
+
+ioOperation::~ioOperation() {}
+
+
+int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* frameLength, int* frameNum)
 {
 	std::ifstream ifs;
-	ifs.open(filePath, std::ios_base::in | std::ios_base::binary);
+	ifs.open(m_filePath, std::ios_base::in | std::ios_base::binary);
 	if (!ifs) {
-		std::cout << "Cannot open file " << filePath << " !\n";
+		std::cout << "Cannot open file " << m_filePath << " !\n";
 		return EXIT_FAILURE;
 	}
 
@@ -339,7 +348,7 @@ int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* fra
 	//float PRF = 1 / PRI;
 	paras->Tp = static_cast<float>(temp[15] / 1e6);  // 发射脉宽
 	paras->Fs = static_cast<int>((temp[17] % static_cast<int>(std::pow(2, 16))) * 1e6);  // 采样频率
-	*frameNum = static_cast<int>(fs::file_size(fs::path(filePath))) / *frameLength;
+	*frameNum = static_cast<int>(fs::file_size(fs::path(m_filePath))) / *frameLength;
 
 	ifs.close();
 
@@ -347,12 +356,12 @@ int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* fra
 }
 
 int ioOperation::readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, int* pulse_num_all, \
-	const RadarParameters& paras, const int& frameLength, const int& frameNum, const std::string& filePath, const int& fileType)
+	const RadarParameters& paras, const int& frameLength, const int& frameNum)
 {
 	std::ifstream ifs;
-	ifs.open(filePath, std::ios_base::in | std::ios_base::binary);
+	ifs.open(m_filePath, std::ios_base::in | std::ios_base::binary);
 	if (!ifs) {
-		std::cout << "Cannot open file " << filePath << " !\n";
+		std::cout << "Cannot open file " << m_filePath << " !\n";
 		return EXIT_FAILURE;
 	}
 
@@ -449,12 +458,12 @@ int ioOperation::getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn
 }
 
 int ioOperation::getKuDataStretch(vec1D_COM_FLOAT* dataW, std::vector<int>* frameHeader, \
-	const std::string& filePath, const vec2D_INT& stretchIndex, const std::vector<int>& dataWFileSn)
+	const vec2D_INT& stretchIndex, const std::vector<int>& dataWFileSn)
 {
 	std::ifstream ifs;
-	ifs.open(filePath, std::ios_base::in | std::ios_base::binary);
+	ifs.open(m_filePath, std::ios_base::in | std::ios_base::binary);
 	if (!ifs) {
-		std::cout << "Cannot open file " << filePath << " !\n";
+		std::cout << "Cannot open file " << m_filePath << " !\n";
 		return EXIT_FAILURE;
 	}
 	
@@ -506,18 +515,31 @@ int ioOperation::getKuDataStretch(vec1D_COM_FLOAT* dataW, std::vector<int>* fram
 }
 
 
-int ioOperation::WriteFile(const std::string& path, const std::complex<float>* data, const  size_t& data_size)
+int ioOperation::writeFile(const std::string& outFilePath, const std::complex<float>* data, const  size_t& data_size)
 {
-	std::ofstream outfile(path);
-	if (!outfile.is_open()) {
+	std::ofstream ofs(outFilePath);
+	if (!ofs.is_open()) {
 		std::cout << "Cannot open the file\n" << std::endl;
 		return EXIT_FAILURE;
 	}
 
 	for (int idx = 0; idx < data_size; idx++) {
-		outfile << data[idx].real() << "\n" << data[idx].imag() << std::endl;
+		ofs << std::fixed << std::setprecision(3) << data[idx].real() << "\n" << data[idx].imag() << "\n";
 	}
 
-	outfile.close();
+	ofs.close();
+	return EXIT_SUCCESS;
+}
+
+int ioOperation::dataWriteBack(const std::string& outFilePath, const cuComplex* d_data, const  size_t& data_size) {
+
+	std::complex<float>* h_data = new std::complex<float>[data_size];
+	checkCudaErrors(cudaMemcpy(h_data, d_data, sizeof(cuComplex) * data_size, cudaMemcpyDeviceToHost));  // data (device -> host)
+
+	ioOperation::writeFile(outFilePath, h_data, data_size);
+
+	delete[] h_data;
+	h_data = nullptr;
+
 	return EXIT_SUCCESS;
 }
