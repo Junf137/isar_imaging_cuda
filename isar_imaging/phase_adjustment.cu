@@ -10,7 +10,7 @@
  **************************************************/
 void Doppler_Tracking(cuComplex* d_data, RadarParameters paras)
 {
-	int data_length = paras.num_echoes * paras.num_range_bins;
+	int data_length = paras.echo_num * paras.range_num;
 	//cuComplex *d_data_temp;
 	//checkCudaErrors(cudaMalloc((void**)&d_data_temp, sizeof(cuComplex)*data_length));
 	//checkCudaErrors(cudaMemset(d_data_temp, 0.0, sizeof(float) * 2 * data_length));
@@ -24,14 +24,14 @@ void Doppler_Tracking(cuComplex* d_data, RadarParameters paras)
 	//beta_trans_data.x = 0.0f;
 	//beta_trans_data.y = 0.0f;
 
-	//checkCudaErrors(cublasCgeam(handle, CUBLAS_OP_T, CUBLAS_OP_T, paras.num_range_bins, paras.num_echoes, &alpha_trans_data,
-	//	d_data, paras.num_echoes, &beta_trans_data, d_data, paras.num_echoes, d_data_temp, paras.num_range_bins));    // 转为行主序
+	//checkCudaErrors(cublasCgeam(handle, CUBLAS_OP_T, CUBLAS_OP_T, paras.range_num, paras.echo_num, &alpha_trans_data,
+	//	d_data, paras.echo_num, &beta_trans_data, d_data, paras.echo_num, d_data_temp, paras.range_num));    // 转为行主序
 
 	// step 1: 为thrust::reduce_by_key生成键值
-	thrust::device_vector<int>oriKey(paras.num_echoes - 1);
+	thrust::device_vector<int>oriKey(paras.echo_num - 1);
 	thrust::sequence(thrust::device, oriKey.begin(), oriKey.end(), 1);
-	thrust::device_vector<int> d_counts(paras.num_echoes - 1, paras.num_range_bins);
-	thrust::device_vector<int> keyVec((paras.num_echoes - 1) * paras.num_range_bins);    // 1,...,1,...,...,255,...,255
+	thrust::device_vector<int> d_counts(paras.echo_num - 1, paras.range_num);
+	thrust::device_vector<int> keyVec((paras.echo_num - 1) * paras.range_num);    // 1,...,1,...,...,255,...,255
 
 	// expand keys according to counts															  
 	expand(d_counts.begin(), d_counts.end(),
@@ -44,24 +44,24 @@ void Doppler_Tracking(cuComplex* d_data, RadarParameters paras)
 	comThr* thr_d_temp_Data = reinterpret_cast<comThr*>(d_data);
 	thrust::device_ptr<comThr> thr_d_Data = thrust::device_pointer_cast(thr_d_temp_Data);
 
-	thrust::device_vector<comThr> mulRes((paras.num_echoes - 1) * paras.num_range_bins);
+	thrust::device_vector<comThr> mulRes((paras.echo_num - 1) * paras.range_num);
 
-	thrust::transform(thrust::device, thr_d_Data, thr_d_Data + (paras.num_echoes - 1) * paras.num_range_bins, thr_d_Data + paras.num_range_bins, mulRes.begin(), \
+	thrust::transform(thrust::device, thr_d_Data, thr_d_Data + (paras.echo_num - 1) * paras.range_num, thr_d_Data + paras.range_num, mulRes.begin(), \
 		[]__host__ __device__(const comThr & x, const comThr & y) { return thrust::conj(x) * y; });
 
 	// step 3: 共轭相乘结果求和
-	thrust::device_vector<comThr> xw((paras.num_echoes - 1));
+	thrust::device_vector<comThr> xw((paras.echo_num - 1));
 	thrust::reduce_by_key(thrust::device, keyVec.begin(), keyVec.end(), mulRes.begin(), thrust::make_discard_iterator(), xw.begin());
 
 
 	// step 4: 求需要补偿的相角
-	thrust::device_vector<float> angle(paras.num_echoes - 1);
+	thrust::device_vector<float> angle(paras.echo_num - 1);
 	Get_Angle op_ga;
 	thrust::transform(thrust::device, xw.begin(), xw.end(), angle.begin(), op_ga);
 	thrust::inclusive_scan(thrust::device, angle.begin(), angle.end(), angle.begin());
 
 	// step 5: 由角度得到相位
-	thrust::device_vector<comThr> phaseC(paras.num_echoes);
+	thrust::device_vector<comThr> phaseC(paras.echo_num);
 	phaseC[0] = comThr(1.0f, 0.0f);
 	Get_Com_Phase op_gcp;
 	thrust::transform(thrust::device, angle.begin(), angle.end(), phaseC.begin() + 1, op_gcp);
@@ -77,10 +77,10 @@ void Doppler_Tracking(cuComplex* d_data, RadarParameters paras)
 	dim3 grid(gridSize);
 	dim3 block(blockSize);
 
-	Compensate_Phase <<<grid, block >>> (d_data, d_phaseC, d_data, paras.num_echoes, paras.num_range_bins);
+	Compensate_Phase <<<grid, block >>> (d_data, d_phaseC, d_data, paras.echo_num, paras.range_num);
 
-	//checkCudaErrors(cublasCgeam(handle, CUBLAS_OP_T, CUBLAS_OP_T, paras.num_echoes, paras.num_range_bins, &alpha_trans_data,
-	//	d_data_temp, paras.num_range_bins, &beta_trans_data, d_data_temp, paras.num_range_bins, d_data, paras.num_echoes));    // 转回列主序
+	//checkCudaErrors(cublasCgeam(handle, CUBLAS_OP_T, CUBLAS_OP_T, paras.echo_num, paras.range_num, &alpha_trans_data,
+	//	d_data_temp, paras.range_num, &beta_trans_data, d_data_temp, paras.range_num, d_data, paras.echo_num));    // 转回列主序
 
 	//checkCudaErrors(cudaFree(d_data_temp));
 	//checkCudaErrors(cublasDestroy(handle));
@@ -114,17 +114,17 @@ __global__ void Compensate_Phase(cuComplex* d_res, cuComplex* d_vec, cuComplex* 
 void RangeVariantPhaseComp(cuComplex* d_data, RadarParameters paras, float* azimuth_data, float* pitch_data)
 {
 	// 获取中心角度，并将角度信息传到设备上
-	int mid_index = paras.num_echoes / 2;
+	int mid_index = paras.echo_num / 2;
 	float middle_azimuth = azimuth_data[mid_index];
 	float middle_pitch = pitch_data[mid_index];
 
 	float* d_azimuth;
-	checkCudaErrors(cudaMalloc((void**)&d_azimuth, sizeof(float) * paras.num_echoes));
-	checkCudaErrors(cudaMemcpy(d_azimuth, azimuth_data, sizeof(float) * paras.num_echoes, cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMalloc((void**)&d_azimuth, sizeof(float) * paras.echo_num));
+	checkCudaErrors(cudaMemcpy(d_azimuth, azimuth_data, sizeof(float) * paras.echo_num, cudaMemcpyHostToDevice));
 
 	float* d_pitch;
-	checkCudaErrors(cudaMalloc((void**)&d_pitch, sizeof(float) * paras.num_echoes));
-	checkCudaErrors(cudaMemcpy(d_pitch, pitch_data, sizeof(float) * paras.num_echoes, cudaMemcpyHostToDevice));
+	checkCudaErrors(cudaMalloc((void**)&d_pitch, sizeof(float) * paras.echo_num));
+	checkCudaErrors(cudaMemcpy(d_pitch, pitch_data, sizeof(float) * paras.echo_num, cudaMemcpyHostToDevice));
 
 	// 参数设置
 	const int light_speed = 300000000;
@@ -132,35 +132,35 @@ void RangeVariantPhaseComp(cuComplex* d_data, RadarParameters paras, float* azim
 	float wave_length = float(light_speed) / float(paras.fc);
 
 	// 假设转动中心在一维像的中心，生成距离向量
-	thrust::device_vector<float>range(paras.num_range_bins);
-	thrust::sequence(thrust::device, range.begin(), range.end(), -float(paras.num_range_bins) / 2.0);
+	thrust::device_vector<float>range(paras.range_num);
+	thrust::sequence(thrust::device, range.begin(), range.end(), -float(paras.range_num) / 2.0);
 	thrust::transform(thrust::device, range.begin(), range.end(), range.begin(), BuildRangeVector(resolution, wave_length));
 
 	// 计算回波相对于中间回波的转角
-	//int middle_echo_index = int(paras.num_echoes / 2);
-	thrust::device_vector<float>theta(paras.num_echoes);
+	//int middle_echo_index = int(paras.echo_num / 2);
+	thrust::device_vector<float>theta(paras.echo_num);
 	thrust::device_ptr<float>thr_azimuth(d_azimuth);
 	thrust::device_ptr<float>thr_pitch(d_pitch);
 	float mid_x = sinf(middle_pitch / 180 * PI_h);
 	float mid_y = cosf(middle_pitch / 180 * PI_h) * cosf(middle_azimuth / 180 * PI_h);
 	float mid_z = cosf(middle_pitch / 180 * PI_h) * sinf(middle_azimuth / 180 * PI_h);
-	thrust::transform(thrust::device, thr_azimuth, thr_azimuth + paras.num_echoes, thr_pitch, theta.begin(), GetAngle(mid_x, mid_y, mid_z));
+	thrust::transform(thrust::device, thr_azimuth, thr_azimuth + paras.echo_num, thr_pitch, theta.begin(), GetAngle(mid_x, mid_y, mid_z));
 
 	// 构建补偿矩阵并补偿距离像序列
 	float* comp_mat = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&comp_mat, sizeof(float) * paras.num_echoes * paras.num_range_bins));
-	checkCudaErrors(cudaMemset(comp_mat, 0, sizeof(float) * paras.num_echoes * paras.num_range_bins));
+	checkCudaErrors(cudaMalloc((void**)&comp_mat, sizeof(float) * paras.echo_num * paras.range_num));
+	checkCudaErrors(cudaMemset(comp_mat, 0, sizeof(float) * paras.echo_num * paras.range_num));
 	cublasHandle_t handle;
 	checkCudaErrors(cublasCreate(&handle));
-	//vectorMulvectorCublasf(handle, comp_mat, theta, range, paras.num_echoes, paras.num_range_bins);
+	//vectorMulvectorCublasf(handle, comp_mat, theta, range, paras.echo_num, paras.range_num);
 	// 08-05-2020 修改
 	vecMulvec(handle, comp_mat, range, theta, 1.0f);
 	thrust::device_ptr<float>thr_comp_mat(comp_mat);
-	//thrust::device_vector<comThr>comp_phase(paras.num_echoes*paras.num_range_bins);
+	//thrust::device_vector<comThr>comp_phase(paras.echo_num*paras.range_num);
 	comThr* thr_data_temp = reinterpret_cast<comThr*>(d_data);
 	thrust::device_ptr<comThr>thr_data = thrust::device_pointer_cast(thr_data_temp);
 
-	thrust::transform(thrust::device, thr_comp_mat, thr_comp_mat + paras.num_echoes * paras.num_range_bins, thr_data, thr_data, CompensatePhase());
+	thrust::transform(thrust::device, thr_comp_mat, thr_comp_mat + paras.echo_num * paras.range_num, thr_data, thr_data, CompensatePhase());
 
 	checkCudaErrors(cudaFree(d_azimuth));
 	checkCudaErrors(cudaFree(d_pitch));
@@ -182,9 +182,9 @@ void Fast_Entropy(cuComplex* d_data, RadarParameters paras)
 	// 列主序输入后续操作可能会简单一点，但懒得改了，春节后再改
 	// 要改什么忘记了。。。
 	// 08-06-2020改，d_Data->d_data
-	int NumRange = paras.num_range_bins;
-	int NumEcho = paras.num_echoes;
-	//int data_length = paras.num_echoes * paras.num_range_bins;
+	int NumRange = paras.range_num;
+	int NumEcho = paras.echo_num;
+	//int data_length = paras.echo_num * paras.range_num;
 
 	//cuComplex *d_Data;
 	//checkCudaErrors(cudaMalloc((void**)&d_Data, sizeof(cuComplex)*data_length));
@@ -199,8 +199,8 @@ void Fast_Entropy(cuComplex* d_data, RadarParameters paras)
 	//beta_trans_data.x = 0.0f;
 	//beta_trans_data.y = 0.0f;
 
-	//checkCudaErrors(cublasCgeam(handle, CUBLAS_OP_T, CUBLAS_OP_T, paras.num_range_bins, paras.num_echoes, &alpha_trans_data,
-	//	d_data, paras.num_echoes, &beta_trans_data, d_data, paras.num_echoes, d_Data, paras.num_range_bins));    // 转为行主序
+	//checkCudaErrors(cublasCgeam(handle, CUBLAS_OP_T, CUBLAS_OP_T, paras.range_num, paras.echo_num, &alpha_trans_data,
+	//	d_data, paras.echo_num, &beta_trans_data, d_data, paras.echo_num, d_Data, paras.range_num));    // 转为行主序
 
 	// * pre-processing and pre-imaging
 	comThr* thr_DataTemp = reinterpret_cast<comThr*>(d_data);
@@ -412,8 +412,8 @@ void Fast_Entropy(cuComplex* d_data, RadarParameters paras)
 	Compensate_Phase <<<grid_com2, block_com2 >>> (d_data, d_phi, d_data, NumEcho, NumRange);
 
 
-	//checkCudaErrors(cublasCgeam(handle, CUBLAS_OP_T, CUBLAS_OP_T, paras.num_echoes, paras.num_range_bins, &alpha_trans_data,
-	//	d_Data, paras.num_range_bins, &beta_trans_data, d_Data, paras.num_range_bins, d_data, paras.num_echoes));    // 转回列主序
+	//checkCudaErrors(cublasCgeam(handle, CUBLAS_OP_T, CUBLAS_OP_T, paras.echo_num, paras.range_num, &alpha_trans_data,
+	//	d_Data, paras.range_num, &beta_trans_data, d_Data, paras.range_num, d_data, paras.echo_num));    // 转回列主序
 
 	// * free space
 	checkCudaErrors(cudaFree(Image1));

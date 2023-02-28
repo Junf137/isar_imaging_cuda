@@ -3,26 +3,206 @@
 
 void vecMulvec(cublasHandle_t handle, cuComplex* result_matrix, thrust::device_vector<comThr>& vec1, thrust::device_vector<comThr>& vec2, const cuComplex& alpha)
 {
-	int m = vec1.size();
-	int n = vec2.size();
+	int vec1_len = static_cast<int>(vec1.size());
+	int vec2_len = static_cast<int>(vec2.size());
 
 	cuComplex* d_vec1 = reinterpret_cast<cuComplex*>(thrust::raw_pointer_cast(vec1.data()));
 	cuComplex* d_vec2 = reinterpret_cast<cuComplex*>(thrust::raw_pointer_cast(vec2.data()));
 
-	checkCudaErrors(cublasCgeru(handle, m, n, &alpha, d_vec1, 1, d_vec2, 1, result_matrix, m));
+	checkCudaErrors(cublasCgeru(handle, vec1_len, vec2_len, &alpha, d_vec1, 1, d_vec2, 1, result_matrix, vec1_len));
+}
+
+
+void vecMulvec(cublasHandle_t handle, cuComplex* d_vec1, int len1, cuComplex* d_vec2, int len2, cuComplex* d_res_matrix, const cuComplex& alpha)
+{
+	checkCudaErrors(cublasCgeru(handle, len1, len2, &alpha, d_vec1, 1, d_vec2, 1, d_res_matrix, len1));
 }
 
 
 void vecMulvec(cublasHandle_t handle, float* result_matrix, thrust::device_vector<float>& vec1, thrust::device_vector<float>& vec2, const float& alpha)
 {
-	int m = vec1.size();
-	int n = vec2.size();
+	int vec1_len = static_cast<int>(vec1.size());
+	int vec2_len = static_cast<int>(vec2.size());
 
 	float* d_vec1 = reinterpret_cast<float*>(thrust::raw_pointer_cast(vec1.data()));
 	float* d_vec2 = reinterpret_cast<float*>(thrust::raw_pointer_cast(vec2.data()));
 
-	checkCudaErrors(cublasSger(handle, m, n, &alpha, d_vec1, 1, d_vec2, 1, result_matrix, m));
+	checkCudaErrors(cublasSger(handle, vec1_len, vec2_len, &alpha, d_vec1, 1, d_vec2, 1, result_matrix, vec1_len));
 }
+
+void vecMulvec(cublasHandle_t handle, float* d_vec1, int len1, float* d_vec2, int len2, float* d_res_matrix, const float& alpha)
+{
+	checkCudaErrors(cublasSger(handle, len1, len2, &alpha, d_vec1, 1, d_vec2, 1, d_res_matrix, len1));
+}
+
+
+void getMax(cublasHandle_t handle, float* d_vec, int len, int* max_idx, float* max_val)
+{
+	checkCudaErrors(cublasIsamax(handle, len, d_vec, 1, max_idx));
+	--(*max_idx);  // cuBlas using 1-based indexing
+
+	checkCudaErrors(cudaMemcpy(max_val, d_vec + *max_idx, sizeof(float) * 1, cudaMemcpyDeviceToHost));
+}
+
+
+void getMin(cublasHandle_t handle, float* d_vec, int len, int* min_idx, float* min_val)
+{
+	checkCudaErrors(cublasIsamin(handle, len, d_vec, 1, min_idx));
+	--(*min_idx);  // cuBlas using 1-based indexing
+
+	checkCudaErrors(cudaMemcpy(min_val, d_vec + *min_idx, sizeof(float) * 1, cudaMemcpyDeviceToHost));
+}
+
+
+__global__ void elementwiseAbs(cuComplex* a, float* abs, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		abs[tid] = cuCabsf(a[tid]);
+	}
+}
+
+__global__ void elementwiseMultiply(cuComplex* a, cuComplex* b, cuComplex* c, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		c[tid] = cuCmulf(a[tid], b[tid]);
+	}
+}
+
+__global__ void elementwiseMultiplyConjA(cuComplex* a, cuComplex* b, cuComplex* c, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		c[tid] = cuCmulf(cuConjf(a[tid]), b[tid]);
+	}
+}
+
+
+__global__ void elementwiseMultiplyRep(cuComplex* a, cuComplex* b, cuComplex* c, int len_a, int len_b)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len_b) {
+		c[tid] = cuCmulf(a[tid % len_a], b[tid]);
+	}
+}
+
+
+__global__ void elementwiseMultiply(float* a, float* b, float* c, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		c[tid] = a[tid] * b[tid];
+	}
+}
+
+
+__global__ void elementwiseMultiply(float* a, cuComplex* b, cuComplex* c, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		c[tid] = cuCmulf(make_cuComplex(a[tid], 0.0f), b[tid]);
+	}
+}
+
+
+__global__ void elementwiseMultiplyRep(float* a, cuComplex* b, cuComplex* c, int len_a, int len_b)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len_b) {
+		c[tid] = cuCmulf(make_cuComplex(a[tid % len_a], 0.0f), b[tid]);
+	}
+}
+
+
+__global__ void elementwiseMultiply(float* a, cuComplex* b, float* c, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		c[tid] = a[tid] * cuCabsf(b[tid]);
+	}
+}
+
+
+__global__ void expJ(float* x, cuComplex* res, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		res[tid] = make_cuComplex(std::cos(x[tid]), std::sin(x[tid]));
+	}
+}
+
+
+__global__ void genHammingVec(float* hamming, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < (len / 2)) {
+		int tx = tid;
+		hamming[tid] = (0.54f - 0.46f * std::cos(2 * PI_h * (static_cast<float>(tx) / len - 1)));
+	}
+	else if (tid < len) {
+		int tx = len - tid - 1;
+		hamming[tid] = (0.54f - 0.46f * std::cos(2 * PI_h * (static_cast<float>(tx) / len - 1)));
+	}
+}
+
+
+//template <typename T>
+//__global__ void getMaxIdx(const T* data, const int dsize, int* result)
+//{
+//
+//	__shared__ volatile T   vals[nTPB];
+//	__shared__ volatile int idxs[nTPB];
+//	__shared__ volatile int last_block;
+//	int idx = threadIdx.x + blockDim.x * blockIdx.x;
+//	last_block = 0;
+//	T   my_val = FLOAT_MIN;
+//	int my_idx = -1;
+//	// sweep from global memory
+//	while (idx < dsize) {
+//		if (data[idx] > my_val) { my_val = data[idx]; my_idx = idx; }
+//		idx += blockDim.x * gridDim.x;
+//	}
+//	// populate shared memory
+//	vals[threadIdx.x] = my_val;
+//	idxs[threadIdx.x] = my_idx;
+//	__syncthreads();
+//	// sweep in shared memory
+//	for (int i = (nTPB >> 1); i > 0; i >>= 1) {
+//		if (threadIdx.x < i)
+//			if (vals[threadIdx.x] < vals[threadIdx.x + i]) { vals[threadIdx.x] = vals[threadIdx.x + i]; idxs[threadIdx.x] = idxs[threadIdx.x + i]; }
+//		__syncthreads();
+//	}
+//	// perform block-level reduction
+//	if (!threadIdx.x) {
+//		blk_vals[blockIdx.x] = vals[0];
+//		blk_idxs[blockIdx.x] = idxs[0];
+//		if (atomicAdd(&blk_num, 1) == gridDim.x - 1) // then I am the last block
+//			last_block = 1;
+//	}
+//	__syncthreads();
+//	if (last_block) {
+//		idx = threadIdx.x;
+//		my_val = FLOAT_MIN;
+//		my_idx = -1;
+//		while (idx < gridDim.x) {
+//			if (blk_vals[idx] > my_val) { my_val = blk_vals[idx]; my_idx = blk_idxs[idx]; }
+//			idx += blockDim.x;
+//		}
+//		// populate shared memory
+//		vals[threadIdx.x] = my_val;
+//		idxs[threadIdx.x] = my_idx;
+//		__syncthreads();
+//		// sweep in shared memory
+//		for (int i = (nTPB >> 1); i > 0; i >>= 1) {
+//			if (threadIdx.x < i)
+//				if (vals[threadIdx.x] < vals[threadIdx.x + i]) { vals[threadIdx.x] = vals[threadIdx.x + i]; idxs[threadIdx.x] = idxs[threadIdx.x + i]; }
+//			__syncthreads();
+//		}
+//		if (!threadIdx.x)
+//			*result = idxs[0];
+//	}
+//}
 
 
 void getMaxInColumns(thrust::device_vector<float>& c, thrust::device_vector<float>& maxval, thrust::device_vector<int>& maxidx, int row, int col)
@@ -53,7 +233,7 @@ void getMaxInColumns(thrust::device_vector<float>& c, thrust::device_vector<floa
 }
 
 
-void cutRangeProfile(cuComplex* d_data, cuComplex* d_data_out, const int range_length, RadarParameters& Paras)
+void cutRangeProfile(cuComplex* d_data, cuComplex* d_data_out, const int range_length, RadarParameters& paras)
 {
 	// 首先进行类型转换:cuComplex->thrust
 	comThr* thr_data_temp = reinterpret_cast<comThr*>(d_data);
@@ -62,21 +242,21 @@ void cutRangeProfile(cuComplex* d_data, cuComplex* d_data_out, const int range_l
 	thrust::device_ptr<comThr>thr_data_out = thrust::device_pointer_cast(thr_data_out_temp);
 
 	// 由于输入数据格式，这里只需选出相应的回波
-	//int start_echo = Paras.num_range_bins / 2 - range_length / 2;
-	int start_echo = Paras.Pos - range_length / 2;
+	//int start_echo = paras.range_num / 2 - range_length / 2;
+	int start_echo = paras.Pos - range_length / 2;
 	if (start_echo < 0)
 	{
 		std::cout << "There is a problem on cutting the range/////\n" << std::endl;
 		system("pause");
 		exit(EXIT_FAILURE);
 	}
-	//int end_echo = Paras.num_range_bins / 2 + range_length / 2 - 1;
-	//thrust::copy(thrust::device, thr_data + start_echo*Paras.num_echoes, thr_data + (end_echo + 1)*Paras.num_echoes,thr_data_out);
+	//int end_echo = paras.range_num / 2 + range_length / 2 - 1;
+	//thrust::copy(thrust::device, thr_data + start_echo*paras.echo_num, thr_data + (end_echo + 1)*paras.echo_num,thr_data_out);
 
 	// 08-05-2020修改，尚未验证
 	//--
-	const int num_ori_elements = Paras.num_range_bins;
-	const int data_size = Paras.num_echoes * range_length;
+	const int num_ori_elements = paras.range_num;
+	const int data_size = paras.echo_num * range_length;
 
 	const int block_size = 128;
 	const int grid_size = (data_size + block_size - 1) / block_size;
@@ -119,27 +299,23 @@ __global__ void setNumInArray(int* arrays, int* index, int set_num, int num_inde
 }
 
 
-void genFFTShiftVec(thrust::device_vector<int>& fftshift_vec) {
-	thrust::sequence(thrust::device, fftshift_vec.begin(), fftshift_vec.end(), 0);
-	thrust::transform(thrust::device, fftshift_vec.begin(), fftshift_vec.end(), fftshift_vec.begin(), \
-		[]__host__ __device__(int x) { return 1 - 2 * (x & 1); });
-}
-
-
-void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const int& echo_num, const int& range_num, const thrust::device_vector<int>& fftshift_vec)
+void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const int& echo_num, const int& range_num, float* hamming, cufftHandle plan_all_echo_c2c)
 {
 	int data_num = echo_num * range_num;
+	int swap_len = data_num / 2;
 
-	thrust::device_ptr<comThr> thr_d_hrrp = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_hrrp));
-	thrust::device_ptr<comThr> thr_d_data = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_data));
+	dim3 block(256);  // block size
+	dim3 grid((data_num + block.x - 1) / block.x);  // grid size
+	dim3 grid_swap((swap_len + block.x - 1) / block.x);
 
-	thrust::transform(thrust::device, thr_d_data, thr_d_data + data_num, fftshift_vec.begin(), thr_d_hrrp, \
-		[]__host__ __device__(const comThr & x, const int& y) { return x * static_cast<float>(y); });  // fftshift
+	// d_data = d_data .* repmat(hamming, echo_num, 1)
+	elementwiseMultiplyRep << <grid, block >> > (hamming, d_data, d_data, range_num, data_num);
+	checkCudaErrors(cudaDeviceSynchronize());
 
-	cufftHandle plan;
-	checkCudaErrors(cufftPlan1d(&plan, range_num, CUFFT_C2C, echo_num));
-	checkCudaErrors(cufftExecC2C(plan, d_hrrp, d_hrrp, CUFFT_FORWARD));  // fft(d_hrrp)
-	checkCudaErrors(cufftDestroy(plan));
+	// d_hrrp = fftshift(fft(d_data))
+	checkCudaErrors(cufftExecC2C(plan_all_echo_c2c, d_data, d_hrrp, CUFFT_FORWARD));
+	swap_range<cuComplex> << <grid_swap, block >> > (d_hrrp, d_hrrp + swap_len, swap_len);  // fftshift
+	checkCudaErrors(cudaDeviceSynchronize());
 }
 
 

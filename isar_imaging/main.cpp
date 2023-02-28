@@ -35,8 +35,8 @@ int main()
     vec1D_COM_FLOAT dataW;
     std::vector<int> frameHeader;
     io->getKuDataStretch(&dataW, &frameHeader, stretchIndex, dataWFileSn);
-    paras.num_echoes = static_cast<int>(dataWFileSn.size());
-    paras.num_range_bins = static_cast<int>(dataW.size()) / paras.num_echoes;
+    paras.echo_num = static_cast<int>(dataWFileSn.size());
+    paras.range_num = static_cast<int>(dataW.size()) / paras.echo_num;
 
     auto tEnd_PreProcessing = std::chrono::high_resolution_clock::now();
     std::cout << "[Time consumption] "

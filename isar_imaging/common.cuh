@@ -8,6 +8,7 @@
 #include "device_launch_parameters.h"
 #include <cuComplex.h>
 #include <cublas_v2.h>
+#include <cublas_api.h>
 #include <cufft.h>
 #include "helper_cuda.h"
 
@@ -42,7 +43,7 @@ typedef std::vector<std::vector<std::complex<float>>> vec2D_COM_FLOAT;
 typedef thrust::complex<float> comThr;
 
 
-constexpr const char* DIR_PATH = "D:\\Users\\Project\\UnderGraduate_Dissertation\\Data_Code\\_OriginalFile\\Data\\210425235341_047414_1383_00\\";
+constexpr const char* DIR_PATH = "F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\";
 constexpr auto PI_h = 3.14159265358979f;
 constexpr auto lightSpeed_h = 300000000;
 
@@ -51,19 +52,14 @@ namespace fs = std::filesystem;
 
 struct RadarParameters
 {
-	RadarParameters() = default;
-	RadarParameters(int _num_echoes, int _num_range_bins, long long _bandwidth, long long _fc, float _Tp, int _Fs, int _Pos) :
-		num_echoes(_num_echoes), num_range_bins(_num_range_bins), band_width(_bandwidth), fc(_fc), Tp(_Tp), Fs(_Fs), Pos(_Pos) {};
-
-	int num_echoes;
-	int num_range_bins;
+	int echo_num;
+	int range_num;
 	long long band_width;
 	long long fc;
 	float Tp;
 	int Fs;
 	int Pos;
 };
-
 
 
 /// <summary>
@@ -75,7 +71,8 @@ struct RadarParameters
 /// <param name="vec1">  vector of length m </param>
 /// <param name="vec2"> vecto of length n </param>
 /// <param name="alpha"> alpha can be in host or device memory </param>
-void vecMulvec(cublasHandle_t handle, cuComplex* result_matrix, thrust::device_vector<comThr>& vec1, thrust::device_vector<comThr>& vec2, const cuComplex& alpha);
+void vecMulvec(cublasHandle_t handle, cuComplex* result_matrix, thrust::device_vector<comThr>& vec1, thrust::device_vector<comThr>& vec2, const cuComplex& alpha);  // todo: deprecated
+void vecMulvec(cublasHandle_t handle, cuComplex* d_vec1, int len1, cuComplex* d_vec2, int len2, cuComplex* d_res_matrix, const cuComplex& alpha);
 
 
 /// <summary>
@@ -87,7 +84,164 @@ void vecMulvec(cublasHandle_t handle, cuComplex* result_matrix, thrust::device_v
 /// <param name="vec1">  vector of length m </param>
 /// <param name="vec2"> vecto of length n </param>
 /// <param name="alpha"> alpha can be in host or device memory </param>
-void vecMulvec(cublasHandle_t handle, float* result_matrix, thrust::device_vector<float>& vec1, thrust::device_vector<float>& vec2, const float& alpha);
+void vecMulvec(cublasHandle_t handle, float* result_matrix, thrust::device_vector<float>& vec1, thrust::device_vector<float>& vec2, const float& alpha);  // todo: deprecated
+void vecMulvec(cublasHandle_t handle, float* d_vec1, int len1, float* d_vec2, int len2, float* d_res_matrix, const float& alpha);
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="handle"></param>
+/// <param name="d_vec"></param>
+/// <param name="len"></param>
+/// <param name="max_idx"></param>
+/// <param name="max"></param>
+void getMax(cublasHandle_t handle, float* d_vec, int len, int* max_idx, float* max_val);
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="handle"></param>
+/// <param name="d_vec"></param>
+/// <param name="len"></param>
+/// <param name="min_idx"></param>
+/// <param name="min_val"></param>
+void getMin(cublasHandle_t handle, float* d_vec, int len, int* min_idx, float* min_val);
+
+
+__global__ void elementwiseAbs(cuComplex* a, float* abs, int len);
+
+
+/// <summary>
+/// Perform element-wise vector multiplcation.
+/// c = a .* b
+/// </summary>
+/// <param name="a"></param>
+/// <param name="b"></param>
+/// <param name="c"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void elementwiseMultiply(cuComplex* a, cuComplex* b, cuComplex* c, int len);
+
+
+/// <summary>
+/// Perform element-wise vector multiplcation.
+/// c = conj(a) .* b
+/// </summary>
+/// <param name="a"></param>
+/// <param name="b"></param>
+/// <param name="c"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void elementwiseMultiplyConjA(cuComplex* a, cuComplex* b, cuComplex* c, int len);
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="a">vector with length len_a</param>
+/// <param name="b">vector with length len_b</param>
+/// <param name="c">vector with length len_c = len_b</param>
+/// <param name="len_a"></param>
+/// <param name="len_b"></param>
+/// <returns></returns>
+__global__ void elementwiseMultiplyRep(cuComplex* a, cuComplex* b, cuComplex* c, int len_a, int len_b);
+
+
+/// <summary>
+/// Perform element-wise vector multiplcation.
+/// c = a .* b
+/// </summary>
+/// <param name="a"></param>
+/// <param name="b"></param>
+/// <param name="c"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void elementwiseMultiply(float* a, float* b, float* c, int len);
+
+
+/// <summary>
+/// Perform element-wise vector multiplcation.
+/// c = a .* b
+/// </summary>
+/// <param name="a"></param>
+/// <param name="b"></param>
+/// <param name="c"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void elementwiseMultiply(float* a, cuComplex* b, cuComplex* c, int len);
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="a">vector with length len_a</param>
+/// <param name="b">vector with length len_b</param>
+/// <param name="c">vector with length len_c = len_b</param>
+/// <param name="len_a"></param>
+/// <param name="len_b"></param>
+/// <returns></returns>
+__global__ void elementwiseMultiplyRep(float* a, cuComplex* b, cuComplex* c, int len_a, int len_b);
+
+
+/// <summary>
+/// Perform element-wise vector multiplcation.
+/// c = a .* b
+/// </summary>
+/// <param name="a"></param>
+/// <param name="b"></param>
+/// <param name="c"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void elementwiseMultiply(float* a, cuComplex* b, float* c, int len);
+
+
+/// <summary>
+/// res = exp(1j * x)
+/// </summary>
+/// <param name="x"></param>
+/// <param name="res"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void expJ(float* x, cuComplex* res, int len);
+
+
+/// <summary>
+/// Generating Hamming Window.
+/// </summary>
+/// <param name="hamming"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void genHammingVec(float* hamming, int len);
+
+
+template <typename T>
+/// <summary>
+/// 
+/// </summary>
+/// <param name="a"></param>
+/// <param name="b"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void swap_range(T* a, T* b, int len)  // todo: separate definition and declaration
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (tid < len) {
+		T c = a[tid]; a[tid] = b[tid]; b[tid] = c;
+	}
+}
+
+
+//template <typename T>
+///// <summary>
+///// refference: https://stackoverflow.com/questions/27925979/thrustmax-element-slow-in-comparison-cublasisamax-more-efficient-implementat
+///// </summary>
+///// <param name="data"></param>
+///// <param name="dsize"></param>
+///// <param name="result"></param>
+///// <returns></returns>
+//__global__ void getMaxIdx(const T* data, const int dsize, int* result);
 
 
 /// <summary>
@@ -146,22 +300,15 @@ __global__ void setNumInArray(int* arrays, int* index, int set_num, int num_inde
 
 
 /// <summary>
-/// Generate fftshift array {1, -1, ...}
+/// HRRP
 /// </summary>
-/// <param name="fftshift_vec"></param>
-void genFFTShiftVec(thrust::device_vector<int>& fftshift_vec);
-
-
-
-/// <summary>
-/// 获取距离像序列.
-/// 对去斜数据, 距离像是对时域回波作fft.
-/// </summary>
-/// <param name="d_data"> 回波数据 </param>
-/// <param name="echo_num"> 慢时间(方位向)点数 </param>
-/// <param name="range_num"> 快时间点数 </param>
-void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const int& echo_num, const int& range_num, const thrust::device_vector<int>& fftshift_vec);
-
+/// <param name="plan"></param>
+/// <param name="d_hrrp"></param>
+/// <param name="d_data"></param>
+/// <param name="echo_num"></param>
+/// <param name="range_num"></param>
+/// <param name="d_fftshift"></param>
+void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const int& echo_num, const int& range_num, float* hamming, cufftHandle plan_all_echo_c2c);
 
 
 /// <summary>
@@ -209,6 +356,10 @@ int nonUniformSamplingFun();
 
 
 /* ioOperation Class */
+
+/// <summary>
+/// Read radar echo signal into CPU mmemory.
+/// </summary>
 class ioOperation
 {
 private:
@@ -217,29 +368,83 @@ private:
 	int m_fileType;  // file polar type
 
 public:
+	/// <summary>
+	/// Constructing object.
+	/// </summary>
+	/// <param name="dirPath"></param>
+	/// <param name="fileType"></param>
 	ioOperation(const std::string& dirPath, const int& fileType);
 
 	~ioOperation();
 
+	/// <summary>
+	/// Retrieving basic radar echo signal information.
+	/// </summary>
+	/// <param name="paras"> radar echo signal parameters </param>
+	/// <param name="frameLength"> single frame length </param>
+	/// <param name="frameNum"> total frame number</param>
+	/// <returns></returns>
 	int getSystemParasFirstFileStretch(RadarParameters* paras, int* frameLength, int* frameNum);
 
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="dataN"></param>
+	/// <param name="stretchIndex"></param>
+	/// <param name="turnAngle"></param>
+	/// <param name="pulse_num_all"></param>
+	/// <param name="paras"></param>
+	/// <param name="frameLength"></param>
+	/// <param name="frameNum"></param>
+	/// <returns></returns>
 	int readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, int* pulse_num_all, \
 		const RadarParameters& paras, const int& frameLength, const int& frameNum);
 
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="flagDataEnd"></param>
+	/// <param name="dataWFileSn"></param>
+	/// <param name="dataNOut"></param>
+	/// <param name="turnAngleOut"></param>
+	/// <param name="dataN"></param>
+	/// <param name="paras"></param>
+	/// <param name="turnAngle"></param>
+	/// <param name="CQ"></param>
+	/// <param name="windowHead"></param>
+	/// <param name="windowLength"></param>
+	/// <param name="nonUniformSampling"></param>
+	/// <returns></returns>
 	int getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FLOAT* dataNOut, std::vector<float>* turnAngleOut, \
 		const vec2D_FLOAT& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& CQ, const int& windowHead, const int& windowLength, const bool& nonUniformSampling);
 
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="dataW"></param>
+	/// <param name="frameHeader"></param>
+	/// <param name="stretchIndex"></param>
+	/// <param name="dataWFileSn"></param>
+	/// <returns></returns>
 	int getKuDataStretch(vec1D_COM_FLOAT* dataW, std::vector<int>* frameHeader, \
 		const vec2D_INT& stretchIndex, const std::vector<int>& dataWFileSn);
 
 	/// <summary>
 	/// write d_data reside in CPU memory back to outFilePath
 	/// </summary>
+	/// <param name="outFilePath"></param>
+	/// <param name="data"></param>
+	/// <param name="data_size"></param>
+	/// <returns></returns>
 	static int writeFile(const std::string& outFilePath, const std::complex<float>* data, const  size_t& data_size);
 
 	/// <summary>
 	/// write d_data reside in GPU memory back to outFilePath
 	/// </summary>
+	/// <param name="outFilePath"></param>
+	/// <param name="d_data"></param>
+	/// <param name="data_size"></param>
+	/// <returns></returns>
 	static int dataWriteBack(const std::string& outFilePath, const cuComplex* d_data, const  size_t& data_size);
 };
 

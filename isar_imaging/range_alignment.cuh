@@ -5,13 +5,26 @@
 
 
 /// <summary>
-/// 采用linej算法的距离对准函数, 参考程序:juliduizhun_modified2.m
+/// Range alignment using linej algorithm
 /// </summary>
-/// <param name="data"> 距离像序列，存放在设备上（数据格式：慢时间* 快时间，行主序存放） </param>
-/// <param name="paras"> 雷达参数结构体 </param>
-/// <param name="shift_vec"> fftshift vector </param>
-/// <param name="handle">  </param>
-void RangeAlignment_linej(cuComplex* d_data, RadarParameters paras, thrust::device_vector<int>& fftshift_vec, cublasHandle_t handle);
+/// <param name="d_data"></param>
+/// <param name="hamming_window"></param>
+/// <param name="paras"></param>
+/// <param name="handle"></param>
+/// <param name="plan_one_echo_c2c"></param>
+/// <param name="plan_one_echo_r2c"></param>
+/// <param name="plan_one_echo_c2r"></param>
+void rangeAlignment(cuComplex* d_data, float* hamming_window, RadarParameters paras, cublasHandle_t handle, cufftHandle plan_one_echo_c2c, cufftHandle plan_one_echo_r2c, cufftHandle plan_one_echo_c2r);
+
+
+/// <summary>
+/// hamming .* real(exp(-1j*pi*[0:N-1]))
+/// </summary>
+/// <param name="hamming"></param>
+/// <param name="d_freq_centering_vec"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void genFreqCenteringVec(float* hamming, cuComplex* d_freq_centering_vec, int len);
 
 
 /// <summary>
@@ -20,27 +33,49 @@ void RangeAlignment_linej(cuComplex* d_data, RadarParameters paras, thrust::devi
 /// </summary>
 /// <param name="vec_a"> first vector </param>
 /// <param name="vec_b1"> second vector </param>
-/// <param name="vec_Corr"> corelation result </param>
-void GetCorrelation(thrust::device_vector<float>& vec_a, thrust::device_vector<float>& vec_b1, thrust::device_vector<float>& vec_Corr);
+/// <param name="vec_Corr"> correlation result </param>
+void getCorrelation(float* d_vec_corr, float* d_vec_a, float* d_vec_b, int len, cufftHandle plan_one_echo_r2c, cufftHandle plan_one_echo_c2r);
 
 
 /// <summary>
-/// 二项式拟合，求最值的精确位置
+/// Binomial fixing, get the precise position of max value.
 /// </summary>
-/// <param name="vec_Corr"> 用于求最值的向量 </param>
-/// <param name="maxPos"> 最大值位置 </param>
+/// <param name="d_vec_corr"></param>
+/// <param name="d_xstar"></param>
+/// <param name="maxPos"></param>
 /// <returns></returns>
-float BinomialFix(thrust::device_vector<float>& vec_Corr, int maxPos);
+__global__ void binomialFix(float* d_vec_corr, float* d_xstar, int maxPos);
 
 
 /// <summary>
-/// 将一维像的目标区域移到中间
+/// Updating d_vec_b in range alignment iteration.
+/// d_vec_b = 0.95f * d_vec_b + abs(d_data(i,:))
+/// </summary>
+/// <param name="d_vec_b"></param>
+/// <param name="d_data_i"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void updateVecB(float* d_vec_b, cuComplex* d_data_i, int len);
+
+
+/// <summary>
+/// d_freq_mov_vec = exp(-1j * 2 * pi * [0:N-1] * mopt / N)
+/// </summary>
+/// <param name="d_freq_mov_vec"></param>
+/// <param name="mopt"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void genFreqMovVec(cuComplex* d_freq_mov_vec, float mopt, int len);
+
+
+/// <summary>
+/// Centering HRRP
 /// </summary>
 /// <param name="data"> 距离像序列，存放在设备上（数据格式：慢时间* 快时间，行主序存放） </param>
-/// <param name="paras"> 雷达参数结构体 </param>
+/// <param name="paras">  </param>
 /// <param name="inter_length">  </param>
 /// <param name="handle">  </param>
-void HRRPCenter(cuComplex* data, RadarParameters paras, const int inter_length, cublasHandle_t handle);
+void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length, cublasHandle_t handle, cufftHandle plan_all_echo_c2c);
 
 /// <summary>
 /// GPU核函数，根据索引值附近ARP均值剔除野值. (参考: HRRPCenter.m)
