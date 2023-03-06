@@ -172,11 +172,11 @@ __global__ void updateVecB(float* d_vec_b, cuComplex* d_data_i, int len)
 }
 
 
-__global__ void genFreqMovVec(cuComplex* d_freq_mov_vec, float mopt, int len)
+__global__ void genFreqMovVec(cuComplex* d_freq_mov_vec, float shit_num, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < len) {
-		float val = -2 * PI_h * static_cast<float>(tid) * mopt / static_cast<float>(len);
+		float val = -2 * PI_h * static_cast<float>(tid) * shit_num / static_cast<float>(len);
 		d_freq_mov_vec[tid] = make_cuComplex(std::cos(val), std::sin(val));
 	}
 }
@@ -184,41 +184,42 @@ __global__ void genFreqMovVec(cuComplex* d_freq_mov_vec, float mopt, int len)
 
 void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length, cublasHandle_t handle, cufftHandle plan_all_echo_c2c)
 {
-	// * normalized hrrp
 	int data_num = paras.echo_num * paras.range_num;
 
 	dim3 block(256);  // block size
 	dim3 grid_all_echo((data_num + block.x - 1) / block.x);  // grid size
+	dim3 grid_one_echo((paras.range_num + block.x - 1) / block.x);
 
-	// 求包络，并归一化
-	float* d_hrrp0 = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_hrrp0, sizeof(cuComplex) * data_num));
+	// * Normalized HRRP
+	float* d_hrrp = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(float) * data_num));
 
-	elementwiseAbs << <grid_all_echo, block >> > (d_data, d_hrrp0, data_num);  // d_hrrp0 = abs(d_data)
+	elementwiseAbs << <grid_all_echo, block >> > (d_data, d_hrrp, data_num);  // d_hrrp = abs(d_data)
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	int hrrp0_max_idx = 0;
-	float hrrp0_max_val = 0.0f;  // max(abs(d_hrrp0))
-	getMax(handle, d_hrrp0, data_num, &hrrp0_max_idx, &hrrp0_max_val);
+	float hrrp0_max_val = 0.0f;  // max(abs(d_hrrp))
+	getMax(handle, d_hrrp, data_num, &hrrp0_max_idx, &hrrp0_max_val);
 	hrrp0_max_val = 1 / hrrp0_max_val;
-	checkCudaErrors(cublasSscal(handle, data_num, &hrrp0_max_val, d_hrrp0, 1));  // d_hrrp0 = d_hrrp0 / max(abs(d_hrrp0))
+	checkCudaErrors(cublasSscal(handle, data_num, &hrrp0_max_val, d_hrrp, 1));  // d_hrrp = d_hrrp / max(abs(d_hrrp))
 
-	// 利用全1向量做乘法，求平均距离像
+	// * HRRP_ARP
 	thrust::device_vector<float> thr_ones_echo_num(paras.echo_num, 1.0f);
 	float* ones_echo_num = reinterpret_cast<float*>(thrust::raw_pointer_cast(thr_ones_echo_num.data()));
 
 	float alpha = 1.0f / float(paras.echo_num);
 	float beta = 0.0;
+
 	thrust::device_vector<float> arp(paras.range_num);
-	float* d_arp = thrust::raw_pointer_cast(arp.data());  // d_arp = sum(d_hrrp0)
+	float* d_arp = thrust::raw_pointer_cast(arp.data());  // d_arp = sum(d_hrrp) / echo_num
 
 	checkCudaErrors(cublasSgemv(handle, CUBLAS_OP_N, paras.range_num, paras.echo_num, &alpha,
-		d_hrrp0, paras.range_num, ones_echo_num, 1, &beta, d_arp, 1));
+		d_hrrp, paras.range_num, ones_echo_num, 1, &beta, d_arp, 1));
 
-	// * 寻找背景噪声阈值
+	// * Calculate Noise Threshold
 	thrust::device_vector<float> arp1(arp.begin(), arp.end());
 	float* d_arp1 = thrust::raw_pointer_cast(arp1.data());
-	thrust::stable_sort(thrust::device, arp1.begin(), arp1.end());
+	thrust::stable_sort(thrust::device, arp1.begin(), arp1.end());  // todo
 
 	int arp1_max_idx = 0;
 	float arp1_max_val = 0.0f;  // max(abs(arp1))
@@ -229,9 +230,8 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 
 	thrust::device_vector<float> diff(diff_length);
 	float* d_diff = thrust::raw_pointer_cast(diff.data());
-
 	thrust::transform(thrust::device, arp1.begin() + inter_length, arp1.end(), arp1.begin(), diff.begin(), \
-		[=]__host__ __device__(const float& x, const float& y) { return std::abs(((x - y - extra_value))); });  // 构造中心化函数中的diff向量
+		[=]__host__ __device__(const float& x, const float& y) { return std::abs(((x - y - extra_value))); });
 
 	int diff_min_idx = 0;
 	float diff_min_val = 0.0f;
@@ -239,8 +239,10 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 
 	float low_threshold_gray = arp1[diff_min_idx + static_cast<int>(inter_length / 2)];
 	
-	// 以下利用thrust实现 indices = find(arp>low_threshold_gray);
-	thrust::device_vector<int>indices(paras.range_num);
+	// indices = find( arp > low_threshold_gray )
+	thrust::device_vector<int> indices(paras.range_num);
+	int* d_indices = thrust::raw_pointer_cast(indices.data());
+
 	thrust::device_vector<int>::iterator end = thrust::copy_if(thrust::make_counting_iterator(0),
 		thrust::make_counting_iterator(int(paras.range_num)),
 		arp.begin(),
@@ -249,19 +251,19 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 	int indices_length = static_cast<int>(end - indices.begin());
 	indices.resize(indices_length);
 
-	int WL = 8;    // MATLAB程序里的变量，意义未知
+	int WL = 8;  // window length
 	float* d_ARP_ave = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_ARP_ave, sizeof(float) * indices_length));
-	int* d_indices = (int*)(thrust::raw_pointer_cast(indices.data()));//*
 
 	dim3 grid_indices((indices_length + block.x - 1) / block.x);
 	GetARPMean << <grid_indices, block >> > (d_ARP_ave, d_indices, d_arp, indices_length, WL, paras);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	thrust::device_ptr<float>ARP_ave(d_ARP_ave);
+	thrust::device_ptr<float> ARP_ave(d_ARP_ave);
 
-	// 以下实现ind=find(APR_ave<low_threshold_gray); 
+	// ind = find( APR_ave < low_threshold_gray )
 	thrust::device_vector<int>ind(indices_length);
+	int* d_ind = thrust::raw_pointer_cast(ind.data());
 	thrust::device_vector<int>::iterator end_min = thrust::copy_if(thrust::make_counting_iterator(0),
 		thrust::make_counting_iterator(indices_length),
 		ARP_ave,
@@ -269,45 +271,54 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 		thrust::placeholders::_1 < low_threshold_gray);
 	int ind_length = static_cast<int>(end_min - ind.begin());
 	ind.resize(ind_length);
-	if (ind_length == indices_length)
-		return;
 
-	// 使用核函数实现indices(ind)=[];这里直接将索引为ind的置于0
-	int* d_ind = (int*)(thrust::raw_pointer_cast(ind.data()));
-	int set_num_len = nextPow2(ind_length);    // 块大小扩为离ind_length最近的2的幂
-	dim3 grid_set_num((set_num_len + block.x - 1) / block.x);  // todo: setting to 1 block
-	int set_num = 0;
-	setNumInArray << <grid_set_num, block >> > (d_indices, d_ind, set_num, ind_length);
-	checkCudaErrors(cudaDeviceSynchronize());
+	if (ind_length != indices_length) {
+		// indices(ind) = 0
+		int set_num_len = nextPow2(ind_length);    // power of 2 closest to ind_length.
+		dim3 grid_set_num((set_num_len + block.x - 1) / block.x);
+		setNumInArray << <grid_set_num, block >> > (d_indices, d_ind, 0, ind_length);
+		checkCudaErrors(cudaDeviceSynchronize());
 
-	int mean_indice = thrust::reduce(thrust::device, indices.begin(), indices.end(), 0, thrust::plus<int>()) / (indices_length - ind_length);
+		int mean_indice = thrust::reduce(thrust::device, indices.begin(), indices.end(), 0, thrust::plus<int>()) / (indices_length - ind_length);
 
-	int shift_num = mean_indice - paras.range_num / 2 + 1;
+		int shift_num = -(mean_indice - paras.range_num / 2 + 1);  // todo: +1???
 
-	checkCudaErrors(cufftExecC2C(plan_all_echo_c2c, d_data, d_data, CUFFT_FORWARD));
+		// * circshift(d_data,[0, -shiftnum])
+		// fft
+		checkCudaErrors(cufftExecC2C(plan_all_echo_c2c, d_data, d_data, CUFFT_FORWARD));
 
-	// exp(1j*2*pi*Vec*shiftnum)
-	thrust::device_vector<comThr> shift_vector(paras.range_num);
-	cuComplex* d_shift_vec = reinterpret_cast<cuComplex*>(thrust::raw_pointer_cast(shift_vector.data()));
+		// d_shift_vec = exp(-1j * 2 * pi * [0:N-1] * shift_num)
+		cuComplex* d_shift_vec = nullptr;
+		checkCudaErrors(cudaMalloc((void**)&d_shift_vec, sizeof(cuComplex)* paras.range_num));
+		genFreqMovVec << <grid_one_echo, block >> > (d_shift_vec, shift_num, paras.range_num);
+		checkCudaErrors(cudaDeviceSynchronize());
 
-	thrust::device_vector<float> vec(paras.range_num);
-	thrust::sequence(thrust::device, vec.begin(), vec.end(), 0.0f);
-	thrust::transform(thrust::device, vec.begin(), vec.end(), shift_vector.begin(), [=]__host__ __device__(const float& x) 
-	{ return (thrust::exp(comThr(0.0, 2 * PI_h * x * static_cast<float>(shift_num) / static_cast<float>(paras.range_num)))); });  // 构造HRRPCenter最后的平移向量
+		// d_data = d_data * repmat(d_shift_vec)
+		elementwiseMultiplyRep << <grid_all_echo, block >> > (d_shift_vec, d_data, d_data, paras.range_num, data_num);
+		checkCudaErrors(cudaDeviceSynchronize());
 
-	// repmat(exp(1j*2*pi*Vec*shiftnum),n,1)
-	elementwiseMultiplyRep << <grid_all_echo, block >> > (d_shift_vec, d_data, d_data, paras.range_num, data_num);
-	checkCudaErrors(cudaDeviceSynchronize());
-
-	// ifft
-	checkCudaErrors(cufftExecC2C(plan_all_echo_c2c, d_data, d_data, CUFFT_INVERSE));
-	float scal_ifft = 1 / static_cast<float>(paras.range_num);
-	checkCudaErrors(cublasCsscal(handle, data_num, &scal_ifft, d_data, 1));
+		// ifft
+		checkCudaErrors(cufftExecC2C(plan_all_echo_c2c, d_data, d_data, CUFFT_INVERSE));
+		float scal_ifft = 1 / static_cast<float>(paras.range_num);
+		checkCudaErrors(cublasCsscal(handle, data_num, &scal_ifft, d_data, 1));
+	}
 
 	// * Free GPU Mallocated Space
-	checkCudaErrors(cudaFree(d_hrrp0));
+	checkCudaErrors(cudaFree(d_hrrp));
 	checkCudaErrors(cudaFree(d_ARP_ave));
 }
+
+
+//__global__ void circShift(cuComplex* d_in, cuComplex* d_out, int frag_len, int shift_num, int len)
+//{
+//	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+//	if (tid < len)
+//	{
+//		//int offset = (tid % frag_len + shift_num) % frag_len;
+//		//int base = static_cast<int>(tid / frag_len) * frag_len;
+//		d_out[static_cast<int>(tid / frag_len) * frag_len + (tid % frag_len + shift_num) % frag_len] = d_in[tid];
+//	}
+//}
 
 
 __global__ void GetARPMean(float* ARP_ave, int* indices, float* arp, int indices_length, int WL, RadarParameters paras)

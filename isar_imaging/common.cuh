@@ -58,7 +58,6 @@ struct RadarParameters
 	long long fc;
 	float Tp;
 	int Fs;
-	int Pos;
 };
 
 
@@ -95,7 +94,18 @@ void vecMulvec(cublasHandle_t handle, float* d_vec1, int len1, float* d_vec2, in
 /// <param name="len"></param>
 /// <param name="max_idx"></param>
 /// <param name="max"></param>
-void getMax(cublasHandle_t handle, float* d_vec, int len, int* max_idx, float* max_val);
+void getMax(cublasHandle_t handle, float* d_vec, int len, int* h_max_idx, float* h_max_val);
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="handle"></param>
+/// <param name="d_vec"></param>
+/// <param name="len"></param>
+/// <param name="h_max_idx"></param>
+/// <param name="h_max_val"></param>
+void getMax(cublasHandle_t handle, cuComplex* d_vec, int len, int* h_max_idx, cuComplex* h_max_val);
 
 
 /// <summary>
@@ -257,13 +267,13 @@ void getMaxInColumns(thrust::device_vector<float>& c, thrust::device_vector<floa
 
 
 /// <summary>
-/// 对距离像进行径向截取
+/// Cutting range profile along echo dimension
 /// </summary>
-/// <param name="d_data"> 距离像(格式: 方位*距离, 行主序); </param>
-/// <param name="d_data_out"></param>
-/// <param name="range_length"> 截取后留下的点数, 一般是2的幂; 输入距离像中心两侧各截取range_length / 2点; </param>
-/// <param name="Paras"> 雷达参数 </param>
-void cutRangeProfile(cuComplex* d_data, cuComplex* d_data_out, const int range_length, RadarParameters& Paras);
+/// <param name="d_data"></param>
+/// <param name="paras"></param>
+/// <param name="range_num_cut"></param>
+/// <param name="handle"></param>
+void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& range_num_cut, cublasHandle_t handle);
 
 
 /// <summary>

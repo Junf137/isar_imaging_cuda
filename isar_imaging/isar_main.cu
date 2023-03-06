@@ -47,7 +47,6 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	cuComplex* d_data = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * data_num));
 	checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(cuComplex) * data_num, cudaMemcpyHostToDevice));  // data (host -> device)
-	thrust::device_ptr<comThr> thr_d_data = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_data));
 
 	auto tEnd_InitGPU = std::chrono::high_resolution_clock::now();
 	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(tEnd_InitGPU - tStart_InitGPU).count() << "ms\n";
@@ -86,7 +85,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 		checkCudaErrors(cudaFree(d_velocity));
 		d_velocity = nullptr;
 
-		std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(tEnd_HPC - tStart_HPC).count() << "ms\n";
+		std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::microseconds>(tEnd_HPC - tStart_HPC).count() << "us\n";
 		std::cout << "---* HPC Over *---\n";
 		std::cout << "************************************\n\n";
 	}
@@ -119,7 +118,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 
 	auto tEnd_HRRP = std::chrono::high_resolution_clock::now();
 
-	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(tEnd_HRRP - tStart_HRRP).count() << "ms\n";
+	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::microseconds>(tEnd_HRRP - tStart_HRRP).count() << "us\n";
 	std::cout << "---* Get HRRP Over *---\n";
 	std::cout << "************************************\n\n";
 
@@ -152,92 +151,69 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	std::cout << "---* Starting Cut range profiles *---\n";
 	auto tStart_cut = std::chrono::high_resolution_clock::now();
 
-	const int range_length = 512;
+	int range_num_cut = 512;
 
-	cuComplex* d_data_cut = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex)* range_length* paras.echo_num));
+	cutRangeProfile(d_data, paras, range_num_cut, handle);
+	data_num = paras.echo_num * paras.range_num;
 
-	// YSQ 改为求最大值点，确定开始距离单元
-	float* range_abs = nullptr;  // 求幅度
-	checkCudaErrors(cudaMalloc((void**)&range_abs, sizeof(float)* paras.range_num));
-	thrust::device_ptr<float> thr_range_abs(range_abs);
-	thrust::transform(thrust::device, thr_d_data, thr_d_data + paras.range_num, thr_range_abs,
-		[]__host__ __device__(const thrust::complex<float>& x) { return thrust::abs(x); });
-	thrust::device_ptr<float> min_ptr = thrust::max_element(thr_range_abs, thr_range_abs + paras.range_num);
-
-	int mPos = static_cast<int>(&min_ptr[0] - &thr_range_abs[0]);
-	paras.Pos = mPos;  // modify paras value
-
-	cutRangeProfile(d_data, d_data_cut, range_length, paras);
-	checkCudaErrors(cudaDeviceSynchronize());
-
-	checkCudaErrors(cudaFree(range_abs));
 	auto tEnd_cut = std::chrono::high_resolution_clock::now();
-	std::cout << "[Time consumption] "
-		<< std::chrono::duration_cast<std::chrono::milliseconds>(tEnd_cut - tStart_cut).count() << "ms\n";
+	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::microseconds>(tEnd_cut - tStart_cut).count() << "us\n";
 	std::cout << "---* Cut range profiles Over *---\n";
 	std::cout << "************************************\n\n";
-
-	checkCudaErrors(cudaFree(d_data));  // use d_data_cut instead
-	paras.range_num = range_length;  // modify paras value
-	data_num = paras.echo_num * paras.range_num;
 
 
 	/**********************
 	 * Phase Compensation
 	 * 多普勒跟踪 -> 距离向空变的相位补偿 -> 快速最小熵 (Doppler_Tracking -> RangeVariantPhaseComp -> Fast_Entropy)
 	 **********************/
-	float* h_azimuth = new float[paras.echo_num];
-	float* h_pitch = new float[paras.echo_num];
-	std::transform(dataNOut.cbegin(), dataNOut.cend(), h_azimuth, [](std::vector<float> v) {return v[2]; });  // make zip with range and velocity data
-	std::transform(dataNOut.cbegin(), dataNOut.cend(), h_pitch, [](std::vector<float> v) {return v[3]; });
-
 	// Doppler centriod tracing
 	std::cout << "---* Starting Doppler centriod tracing *---\n";
-	auto tStart_droptrace = std::chrono::high_resolution_clock::now();
 
-	Doppler_Tracking(d_data_cut, paras);
-	checkCudaErrors(cudaDeviceSynchronize());
+	// * Retrieving Azimith and Pitch Data
+	float* h_azimuth = new float[paras.echo_num];
+	float* h_pitch = new float[paras.echo_num];
+	std::transform(dataNOut.cbegin(), dataNOut.cend(), h_azimuth, [](std::vector<float> v) {return v[2]; });
+	std::transform(dataNOut.cbegin(), dataNOut.cend(), h_pitch, [](std::vector<float> v) {return v[3]; });
+
+	auto tPC_1 = std::chrono::high_resolution_clock::now();
+
+	// * Doppler Tracking
+	Doppler_Tracking(d_data, paras);
 	
-	auto tEnd_droptrace = std::chrono::high_resolution_clock::now();
-	std::cout << "[Time consumption] "
-		<< std::chrono::duration_cast<std::chrono::milliseconds>(tEnd_droptrace - tStart_droptrace).count() << "ms\n";
-	std::cout << "---* Doppler centriod tracing Over *---\n";
-	std::cout << "************************************\n\n";
+	auto tPC_2 = std::chrono::high_resolution_clock::now();
 
-	// range variant phase compensation
-	std::cout << "---* Starting range variant phase compensation *---\n";
-	auto tStart_ran = std::chrono::high_resolution_clock::now();
+	// * Range Variant Phase Compensation
+	RangeVariantPhaseComp(d_data, paras, h_azimuth, h_pitch);
 
-	RangeVariantPhaseComp(d_data_cut, paras, h_azimuth, h_pitch);
+	auto tPC_3 = std::chrono::high_resolution_clock::now();
 
-	checkCudaErrors(cudaDeviceSynchronize());
-	auto tEnd_ran = std::chrono::high_resolution_clock::now();
-	std::cout << "[Time consumption] "
-		<< std::chrono::duration_cast<std::chrono::milliseconds>(tEnd_ran - tStart_ran).count() << "ms\n";
+	// * Fast Entropy
+	Fast_Entropy(d_data, paras);
+
+	auto tPC_4 = std::chrono::high_resolution_clock::now();
+
+	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::microseconds>(tPC_2 - tPC_1).count() << "us\n";
+	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::microseconds>(tPC_3 - tPC_2).count() << "us\n";
+	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::microseconds>(tPC_4 - tPC_3).count() << "us\n";
 	std::cout << "---* range variant phase compensation Over *---\n";
 	std::cout << "************************************\n\n";
 
-	// 
-	Fast_Entropy(d_data_cut, paras);
 
-
-	ioOperation::dataWriteBack(std::string(DIR_PATH) + "isar_image.dat", d_data_cut, data_num);
+	/**********************
+	* Final Data Write Back
+	**********************/
+	ioOperation::dataWriteBack(std::string(DIR_PATH) + "isar_image.dat", d_data, data_num);
 
 
 	/**********************
 	* Free Allocated Memory & Destory Pointer
 	**********************/
 	delete[] h_azimuth;
-	h_azimuth = nullptr;
 	delete[] h_pitch;
-	h_pitch = nullptr;
-	h_data = nullptr;  // h_data cannot be deleted (pointer resides in vector)
 
+	checkCudaErrors(cudaFree(d_data));
 	checkCudaErrors(cudaFree(hamming));
-	hamming = nullptr;
 	checkCudaErrors(cudaFree(d_hrrp));
-	d_hrrp = nullptr;
 	
 	checkCudaErrors(cublasDestroy(handle));
 	

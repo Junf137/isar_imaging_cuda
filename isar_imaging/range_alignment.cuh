@@ -65,17 +65,30 @@ __global__ void updateVecB(float* d_vec_b, cuComplex* d_data_i, int len);
 /// <param name="mopt"></param>
 /// <param name="len"></param>
 /// <returns></returns>
-__global__ void genFreqMovVec(cuComplex* d_freq_mov_vec, float mopt, int len);
+__global__ void genFreqMovVec(cuComplex* d_freq_mov_vec, float shit_num, int len);
 
 
 /// <summary>
 /// Centering HRRP
 /// </summary>
-/// <param name="data"> 距离像序列，存放在设备上（数据格式：慢时间* 快时间，行主序存放） </param>
-/// <param name="paras">  </param>
-/// <param name="inter_length">  </param>
-/// <param name="handle">  </param>
+/// <param name="d_data"></param>
+/// <param name="paras"></param>
+/// <param name="inter_length"></param>
+/// <param name="handle"></param>
+/// <param name="plan_all_echo_c2c"></param>
 void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length, cublasHandle_t handle, cufftHandle plan_all_echo_c2c);
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="d_in"></param>
+/// <param name="d_out"></param>
+/// <param name="shift_num"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+//__global__ void circShift(cuComplex* d_in, cuComplex* d_out, int frag_len, int shift_num, int len);
+
 
 /// <summary>
 /// GPU核函数，根据索引值附近ARP均值剔除野值. (参考: HRRPCenter.m)

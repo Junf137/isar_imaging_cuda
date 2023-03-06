@@ -78,7 +78,7 @@ void Doppler_Tracking(cuComplex* d_data, RadarParameters paras)
 	dim3 block(blockSize);
 
 	Compensate_Phase <<<grid, block >>> (d_data, d_phaseC, d_data, paras.echo_num, paras.range_num);
-
+	checkCudaErrors(cudaDeviceSynchronize());
 	//checkCudaErrors(cublasCgeam(handle, CUBLAS_OP_T, CUBLAS_OP_T, paras.echo_num, paras.range_num, &alpha_trans_data,
 	//	d_data_temp, paras.range_num, &beta_trans_data, d_data_temp, paras.range_num, d_data, paras.echo_num));    // 转回列主序
 

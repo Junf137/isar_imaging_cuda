@@ -36,12 +36,20 @@ void vecMulvec(cublasHandle_t handle, float* d_vec1, int len1, float* d_vec2, in
 }
 
 
-void getMax(cublasHandle_t handle, float* d_vec, int len, int* max_idx, float* max_val)
+void getMax(cublasHandle_t handle, float* d_vec, int len, int* h_max_idx, float* h_max_val)
 {
-	checkCudaErrors(cublasIsamax(handle, len, d_vec, 1, max_idx));
-	--(*max_idx);  // cuBlas using 1-based indexing
+	checkCudaErrors(cublasIsamax(handle, len, d_vec, 1, h_max_idx));
+	--(*h_max_idx);  // cuBlas using 1-based indexing
 
-	checkCudaErrors(cudaMemcpy(max_val, d_vec + *max_idx, sizeof(float) * 1, cudaMemcpyDeviceToHost));
+	checkCudaErrors(cudaMemcpy(h_max_val, d_vec + *h_max_idx, sizeof(float), cudaMemcpyDeviceToHost));
+}
+
+void getMax(cublasHandle_t handle, cuComplex* d_vec, int len, int* h_max_idx, cuComplex* h_max_val)
+{
+	checkCudaErrors(cublasIcamax(handle, len, d_vec, 1, h_max_idx));
+	--(*h_max_idx);  // cuBlas using 1-based indexing
+
+	checkCudaErrors(cudaMemcpy(h_max_val, d_vec + *h_max_idx, sizeof(cuComplex), cudaMemcpyDeviceToHost));
 }
 
 
@@ -233,49 +241,45 @@ void getMaxInColumns(thrust::device_vector<float>& c, thrust::device_vector<floa
 }
 
 
-void cutRangeProfile(cuComplex* d_data, cuComplex* d_data_out, const int range_length, RadarParameters& paras)
+void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& range_num_cut, cublasHandle_t handle)
 {
-	// 首先进行类型转换:cuComplex->thrust
-	comThr* thr_data_temp = reinterpret_cast<comThr*>(d_data);
-	thrust::device_ptr<comThr>thr_data = thrust::device_pointer_cast(thr_data_temp);
-	comThr* thr_data_out_temp = reinterpret_cast<comThr*>(d_data_out);
-	thrust::device_ptr<comThr>thr_data_out = thrust::device_pointer_cast(thr_data_out_temp);
+	int data_num_cut = paras.echo_num * range_num_cut;
 
-	// 由于输入数据格式，这里只需选出相应的回波
-	//int start_echo = paras.range_num / 2 - range_length / 2;
-	int start_echo = paras.Pos - range_length / 2;
-	if (start_echo < 0)
-	{
-		std::cout << "There is a problem on cutting the range/////\n" << std::endl;
+	dim3 block(256);  // block size
+	dim3 grid((data_num_cut + block.x - 1) / block.x);  // grid size
+
+	cuComplex* d_data_cut = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * data_num_cut));
+
+	// max(abs(d_data(1,:)))
+	int range_abs_max_idx = 0;
+	cuComplex range_abs_max_val = make_cuComplex(0.0f, 0.0f);
+	getMax(handle, d_data, paras.range_num, &range_abs_max_idx, &range_abs_max_val);
+
+	int offset_l = range_abs_max_idx - range_num_cut / 2;
+	int offset_r = range_abs_max_idx + range_num_cut / 2;
+	if (offset_l < 0 || offset_r >= paras.range_num) {
+		std::cout << "[Warnning] Invalid range_num_cut! Probably too long.\n" << std::endl;
 		system("pause");
 		exit(EXIT_FAILURE);
 	}
-	//int end_echo = paras.range_num / 2 + range_length / 2 - 1;
-	//thrust::copy(thrust::device, thr_data + start_echo*paras.echo_num, thr_data + (end_echo + 1)*paras.echo_num,thr_data_out);
 
-	// 08-05-2020修改，尚未验证
-	//--
-	const int num_ori_elements = paras.range_num;
-	const int data_size = paras.echo_num * range_length;
+	cutRangeProfileHelper << <grid, block >> > (d_data, d_data_cut, data_num_cut, offset_l, range_num_cut, paras.range_num);
+	checkCudaErrors(cudaDeviceSynchronize());
 
-	const int block_size = 128;
-	const int grid_size = (data_size + block_size - 1) / block_size;
-
-	dim3 block(block_size);
-	dim3 grid(grid_size);
-
-	cutRangeProfileHelper <<<grid, block >>> (d_data, d_data_out, data_size, start_echo, range_length, num_ori_elements);
-	//--
+	// point d_data to newly allocated memory block
+	checkCudaErrors(cudaFree(d_data));
+	d_data = d_data_cut;
+	paras.range_num = range_num_cut;
 }
 
 
-__global__ void cutRangeProfileHelper(cuComplex* d_in, cuComplex* d_out, const int data_size,
-	const int offset, const int num_elements, const int num_ori_elements)
+__global__ void cutRangeProfileHelper(cuComplex* d_in, cuComplex* d_out, int data_num_cut, int offset, int range_num_cut, int range_num)
 {
-	unsigned int idx = threadIdx.x + blockDim.x * blockIdx.x;
-	if (idx >= data_size)
-		return;
-	d_out[idx] = d_in[(idx / num_elements) * num_ori_elements + offset + idx % num_elements];
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < data_num_cut) {
+		d_out[tid] = d_in[(tid / range_num_cut) * range_num + offset + tid % range_num_cut];
+	}
 }
 
 

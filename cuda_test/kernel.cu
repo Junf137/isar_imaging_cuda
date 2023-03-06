@@ -44,9 +44,31 @@ __global__ void swap_range(T* a, T* b, int len)
 
 int main()
 {
-    test();
+    //test();
     //cuBlasTest();
     //cufftTest();
+
+    int len = 15;
+    int frag = 5;
+    int shift = 3;
+
+    int* x = new int(len);
+    int* y = new int(len);
+    for (int i = 0; i < len; i++) {
+        x[i] = i;
+    }
+
+
+    for (int i = 0; i < len; i++) {
+        int offset = (i % frag + shift) % frag;
+        int base = static_cast<int>(i / frag) * frag;
+        y[base + offset] = x[i];
+        std::cout << base << " " << offset << "\n";
+    }
+
+    for (int i = 0; i < len; i++) {
+        std::cout << y[i] << " ";
+    }
 
     return 0;
 }
