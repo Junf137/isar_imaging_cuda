@@ -16,7 +16,7 @@ void highSpeedCompensation(cuComplex* d_data, int Fs, long long band_width, floa
 
 	// coef = - 4 * pi * K / c
 	float chirp_rate = -static_cast<float>(band_width) / Tp;  // extra minus symbol for velocity (depending on different radar signal)
-	float coefficient = 4.0f * PI_h * chirp_rate / lightSpeed_h;
+	float coefficient = 4.0f * PI_h * chirp_rate / LIGHT_SPEED_h;
 
 	// phase = coef * v * tk.^2
 	float* d_phase = nullptr;

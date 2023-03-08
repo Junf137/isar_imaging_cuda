@@ -25,6 +25,60 @@
 
 typedef thrust::complex<float> comThr;
 
+__global__ void circshiftInTime(float* data, int n, int shift)
+{
+    int row = blockIdx.x; // row index
+    int tid = threadIdx.x; // thread index within a block
+    int num_threads = blockDim.x; // number of threads in a block
+
+    // calculate the starting and ending indices of the portion of the row to be processed by this thread
+    int start_idx = tid * (n / num_threads);
+    int end_idx = (tid + 1) * (n / num_threads);
+    if (tid == num_threads - 1) {
+        end_idx = n; // handle the remainder in the last thread
+    }
+
+    // apply circshift to the portion of the row
+    for (int i = start_idx; i < end_idx; i++) {
+        int idx = row * n + i;
+        int shifted_idx = (i + shift) % n + row * n;
+        float tmp = data[idx];
+        data[idx] = data[shifted_idx];
+        data[shifted_idx] = tmp;
+    }
+}
+
+template <typename T>
+__global__ void circShiftKernel(T* d_in, T* d_out, int frag_len, int shift_num, int len)
+{
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid < len)
+    {
+        //int base = static_cast<int>(tid / frag_len) * frag_len;
+        //int offset = (tid % frag_len + shift_num) % frag_len;
+        d_out[static_cast<int>(tid / frag_len) * frag_len + (tid % frag_len + shift_num) % frag_len] = d_in[tid];
+    }
+}
+
+template <typename T>
+void circshift(T* d_data, int frag_len, int shift, int len)
+{
+    T* d_data_temp = nullptr;
+    checkCudaErrors(cudaMalloc((void**)&d_data_temp, sizeof(T) * len));
+
+    dim3 block(256);  // block size
+    dim3 grid((len + block.x - 1) / block.x);  // grid size
+    circShiftKernel << <grid, block >> > (d_data, d_data_temp, frag_len, shift, len);
+    checkCudaErrors(cudaDeviceSynchronize());
+
+    //checkCudaErrors(cudaFree(d_data));
+    //d_data = d_data_temp;
+    checkCudaErrors(cudaMemcpy(d_data, d_data_temp, sizeof(T) * len, cudaMemcpyDeviceToDevice));
+    checkCudaErrors(cudaFree(d_data_temp));
+}
+
+void testCircshift();
+
 void cufftTest();
 
 void cuBlasTest();
@@ -44,33 +98,7 @@ __global__ void swap_range(T* a, T* b, int len)
 
 int main()
 {
-    //test();
-    //cuBlasTest();
-    //cufftTest();
-
-    int len = 15;
-    int frag = 5;
-    int shift = 3;
-
-    int* x = new int(len);
-    int* y = new int(len);
-    for (int i = 0; i < len; i++) {
-        x[i] = i;
-    }
-
-
-    for (int i = 0; i < len; i++) {
-        int offset = (i % frag + shift) % frag;
-        int base = static_cast<int>(i / frag) * frag;
-        y[base + offset] = x[i];
-        std::cout << base << " " << offset << "\n";
-    }
-
-    for (int i = 0; i < len; i++) {
-        std::cout << y[i] << " ";
-    }
-
-    return 0;
+    testCircshift();
 }
 
 void test()
@@ -92,6 +120,42 @@ void test()
     for (int i = 0; i < len; ++i) {
         std::cout << h_arr[i] << " ";
     }
+}
+
+void testCircshift()
+{
+    int shift = 3;
+    int echo = 2;
+    int range = 20;
+    int data_num = echo * range;
+
+    std::complex<float>* h_data = new std::complex<float>[data_num];
+    for (int i = 0; i < data_num; ++i) {
+        h_data[i] = std::complex<float>(static_cast<float>(i), static_cast<float>(i));
+    }
+
+    //for (int i = 0; i < data_num; ++i) {
+    //    if (i % range == 0) {
+    //        std::cout << "\n";
+    //    }
+    //    std::cout << h_data[i] << " ";
+    //}
+
+    cuComplex* d_data = nullptr;
+    checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * data_num));
+    checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(cuComplex) * data_num, cudaMemcpyHostToDevice));
+
+    circshift(d_data, range, shift, data_num);
+
+    checkCudaErrors(cudaMemcpy(h_data, d_data, sizeof(cuComplex) * data_num, cudaMemcpyDeviceToHost));
+
+    for (int i = 0; i < data_num; ++i) {
+        if (i % range == 0) {
+            std::cout << "\n";
+        }
+        std::cout << h_data[i] << " ";
+    }
+
 }
 
 void cuBlasTest()

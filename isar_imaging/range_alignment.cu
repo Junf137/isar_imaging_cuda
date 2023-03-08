@@ -10,7 +10,7 @@ void rangeAlignment(cuComplex* d_data, float* hamming_window, RadarParameters pa
 	dim3 block(256);  // block size
 	dim3 grid_all_echo((data_num + block.x - 1) / block.x);  // grid size
 	dim3 grid_one_echo((paras.range_num + block.x - 1) / block.x);
-	
+
 	// * Generate Frequency Centering Vector
 	cuComplex* d_freq_centering_vec = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_freq_centering_vec, sizeof(cuComplex) * paras.range_num));
@@ -25,23 +25,23 @@ void rangeAlignment(cuComplex* d_data, float* hamming_window, RadarParameters pa
 	// d_data(1,:) = ifft(d_data(1,:))
 	checkCudaErrors(cufftExecC2C(plan_one_echo_c2c, d_data, d_data, CUFFT_INVERSE));
 	checkCudaErrors(cublasCsscal(handle, paras.range_num, &scal_ifft, d_data, 1));
-	
+
 	float* d_vec_a = nullptr;// vector a
 	checkCudaErrors(cudaMalloc((void**)&d_vec_a, sizeof(float) * paras.range_num));
 
-	float* d_vec_b = nullptr;  // vector b = abs(ifft(d_data(1,:)))
+	float* d_vec_b = nullptr;  // vector b = abs(d_data(1,:))
 	checkCudaErrors(cudaMalloc((void**)&d_vec_b, sizeof(float) * paras.range_num));
 	elementwiseAbs << <grid_one_echo, block >> > (d_data, d_vec_b, paras.range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * Handle Other Echo Signal in Loop
 	// initialization
-	cuComplex* d_ifft_temp = nullptr;  // // store fft result in loop
+	cuComplex* d_ifft_temp = nullptr;  // store fft result in loop
 	checkCudaErrors(cudaMalloc((void**)&d_ifft_temp, sizeof(cuComplex) * paras.range_num));
 
 	float* d_vec_corr = nullptr;  // store correlation result in loop
-	checkCudaErrors(cudaMalloc((void**)&d_vec_corr, sizeof(float)* paras.range_num));
-	
+	checkCudaErrors(cudaMalloc((void**)&d_vec_corr, sizeof(float) * paras.range_num));
+
 	cuComplex* d_freq_mov_vec = nullptr;  // store alignment result in loop
 	checkCudaErrors(cudaMalloc((void**)&d_freq_mov_vec, sizeof(cuComplex) * paras.range_num));
 
@@ -96,7 +96,7 @@ void rangeAlignment(cuComplex* d_data, float* hamming_window, RadarParameters pa
 		checkCudaErrors(cudaDeviceSynchronize());
 	}
 
-	// step 6: Free GPU Mallocated Space
+	// * Free GPU Mallocated Space
 	delete h_xstar;
 	checkCudaErrors(cudaFree(d_xstar));
 
@@ -224,7 +224,7 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 	int arp1_max_idx = 0;
 	float arp1_max_val = 0.0f;  // max(abs(arp1))
 	getMax(handle, d_arp1, paras.range_num, &arp1_max_idx, &arp1_max_val);
-	
+
 	float extra_value = static_cast<float>(inter_length) * arp1_max_val / static_cast<float>(paras.range_num);
 	int diff_length = paras.range_num - inter_length;
 
@@ -238,7 +238,7 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 	getMin(handle, d_diff, diff_length, &diff_min_idx, &diff_min_val);
 
 	float low_threshold_gray = arp1[diff_min_idx + static_cast<int>(inter_length / 2)];
-	
+
 	// indices = find( arp > low_threshold_gray )
 	thrust::device_vector<int> indices(paras.range_num);
 	int* d_indices = thrust::raw_pointer_cast(indices.data());
@@ -283,24 +283,8 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 
 		int shift_num = -(mean_indice - paras.range_num / 2 + 1);  // todo: +1???
 
-		// * circshift(d_data,[0, -shiftnum])
-		// fft
-		checkCudaErrors(cufftExecC2C(plan_all_echo_c2c, d_data, d_data, CUFFT_FORWARD));
-
-		// d_shift_vec = exp(-1j * 2 * pi * [0:N-1] * shift_num)
-		cuComplex* d_shift_vec = nullptr;
-		checkCudaErrors(cudaMalloc((void**)&d_shift_vec, sizeof(cuComplex)* paras.range_num));
-		genFreqMovVec << <grid_one_echo, block >> > (d_shift_vec, shift_num, paras.range_num);
-		checkCudaErrors(cudaDeviceSynchronize());
-
-		// d_data = d_data * repmat(d_shift_vec)
-		elementwiseMultiplyRep << <grid_all_echo, block >> > (d_shift_vec, d_data, d_data, paras.range_num, data_num);
-		checkCudaErrors(cudaDeviceSynchronize());
-
-		// ifft
-		checkCudaErrors(cufftExecC2C(plan_all_echo_c2c, d_data, d_data, CUFFT_INVERSE));
-		float scal_ifft = 1 / static_cast<float>(paras.range_num);
-		checkCudaErrors(cublasCsscal(handle, data_num, &scal_ifft, d_data, 1));
+		// * circshift(d_data,[0, shiftnum])
+		circshiftFreq(d_data, paras.range_num, static_cast<float>(shift_num), data_num, handle, plan_all_echo_c2c);
 	}
 
 	// * Free GPU Mallocated Space
@@ -309,16 +293,60 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 }
 
 
-//__global__ void circShift(cuComplex* d_in, cuComplex* d_out, int frag_len, int shift_num, int len)
-//{
-//	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-//	if (tid < len)
-//	{
-//		//int offset = (tid % frag_len + shift_num) % frag_len;
-//		//int base = static_cast<int>(tid / frag_len) * frag_len;
-//		d_out[static_cast<int>(tid / frag_len) * frag_len + (tid % frag_len + shift_num) % frag_len] = d_in[tid];
-//	}
-//}
+template <typename T>
+void circshift(T* d_data, int frag_len, int shift, int len)
+{
+	T* d_data_temp = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_data_temp, sizeof(T) * len));
+
+	dim3 block(256);  // block size
+	dim3 grid((len + block.x - 1) / block.x);  // grid size
+	circShiftKernel << <grid, block >> > (d_data, d_data_temp, frag_len, shift, len);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	checkCudaErrors(cudaMemcpy(d_data, d_data_temp, sizeof(T) * len, cudaMemcpyDeviceToDevice));
+	checkCudaErrors(cudaFree(d_data_temp));
+}
+
+template <typename T>
+__global__ void circShiftKernel(T* d_in, T* d_out, int frag_len, int shift_num, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len)
+	{
+		//int base = static_cast<int>(tid / frag_len) * frag_len;
+		//int offset = (tid % frag_len + shift_num) % frag_len;
+		d_out[static_cast<int>(tid / frag_len) * frag_len + (tid % frag_len + shift_num) % frag_len] = d_in[tid];
+	}
+}
+
+
+void circshiftFreq(cuComplex* d_data, int frag_len, float shift, int len, cublasHandle_t handle, cufftHandle plan_all_echo_c2c)
+{
+	dim3 block(256);
+	dim3 grid_one_frag((frag_len + block.x - 1) / block.x);  // grid size
+	dim3 grid((len + block.x - 1) / block.x);  // grid size
+
+	// fft
+	checkCudaErrors(cufftExecC2C(plan_all_echo_c2c, d_data, d_data, CUFFT_FORWARD));
+
+	// d_shift_vec = exp(-1j * 2 * pi * [0:N-1] * shift)
+	cuComplex* d_shift_vec = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_shift_vec, sizeof(cuComplex) * frag_len));
+	genFreqMovVec << <grid_one_frag, block >> > (d_shift_vec, shift, frag_len);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// d_data = d_data * repmat(d_shift_vec)
+	elementwiseMultiplyRep << <grid, block >> > (d_shift_vec, d_data, d_data, frag_len, len);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// ifft
+	checkCudaErrors(cufftExecC2C(plan_all_echo_c2c, d_data, d_data, CUFFT_INVERSE));
+	float scal_ifft = 1 / static_cast<float>(frag_len);
+	checkCudaErrors(cublasCsscal(handle, len, &scal_ifft, d_data, 1));
+
+	checkCudaErrors(cudaFree(d_shift_vec));
+}
 
 
 __global__ void GetARPMean(float* ARP_ave, int* indices, float* arp, int indices_length, int WL, RadarParameters paras)

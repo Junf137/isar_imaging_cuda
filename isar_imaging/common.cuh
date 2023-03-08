@@ -45,7 +45,7 @@ typedef thrust::complex<float> comThr;
 
 constexpr const char* DIR_PATH = "F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\";
 constexpr auto PI_h = 3.14159265358979f;
-constexpr auto lightSpeed_h = 300000000;
+constexpr auto LIGHT_SPEED_h = 300000000;
 
 namespace fs = std::filesystem;
 

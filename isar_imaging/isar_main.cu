@@ -166,8 +166,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	 * Phase Compensation
 	 * 多普勒跟踪 -> 距离向空变的相位补偿 -> 快速最小熵 (Doppler_Tracking -> RangeVariantPhaseComp -> Fast_Entropy)
 	 **********************/
-	// Doppler centriod tracing
-	std::cout << "---* Starting Doppler centriod tracing *---\n";
+	std::cout << "---* Starting Phase Compensation *---\n";
 
 	// * Retrieving Azimith and Pitch Data
 	float* h_azimuth = new float[paras.echo_num];
@@ -178,24 +177,29 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	auto tPC_1 = std::chrono::high_resolution_clock::now();
 
 	// * Doppler Tracking
-	Doppler_Tracking(d_data, paras);
+	dopplerTracking(d_data, paras.echo_num, paras.range_num);
 	
 	auto tPC_2 = std::chrono::high_resolution_clock::now();
 
 	// * Range Variant Phase Compensation
-	RangeVariantPhaseComp(d_data, paras, h_azimuth, h_pitch);
+	rangeVariantPhaseComp(d_data, paras, h_azimuth, h_pitch, handle);
 
 	auto tPC_3 = std::chrono::high_resolution_clock::now();
 
 	// * Fast Entropy
-	Fast_Entropy(d_data, paras);
+	fastEntropy(d_data, paras.echo_num, paras.range_num, handle);
 
 	auto tPC_4 = std::chrono::high_resolution_clock::now();
+
+	delete[] h_azimuth;
+	h_azimuth = nullptr;
+	delete[] h_pitch;
+	h_pitch = nullptr;
 
 	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::microseconds>(tPC_2 - tPC_1).count() << "us\n";
 	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::microseconds>(tPC_3 - tPC_2).count() << "us\n";
 	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::microseconds>(tPC_4 - tPC_3).count() << "us\n";
-	std::cout << "---* range variant phase compensation Over *---\n";
+	std::cout << "---* Phase Compensation Over *---\n";
 	std::cout << "************************************\n\n";
 
 
@@ -208,9 +212,6 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	/**********************
 	* Free Allocated Memory & Destory Pointer
 	**********************/
-	delete[] h_azimuth;
-	delete[] h_pitch;
-
 	checkCudaErrors(cudaFree(d_data));
 	checkCudaErrors(cudaFree(hamming));
 	checkCudaErrors(cudaFree(d_hrrp));

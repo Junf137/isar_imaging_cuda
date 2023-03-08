@@ -80,14 +80,31 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 
 
 /// <summary>
-/// 
+/// slightly slower than doing circshift in frequency domain.
 /// </summary>
-/// <param name="d_in"></param>
-/// <param name="d_out"></param>
-/// <param name="shift_num"></param>
+/// <typeparam name="T"></typeparam>
+/// <param name="d_data"></param>
+/// <param name="frag_num"> fragment length </param>
+/// <param name="shift"> shift number for each fragment </param>
+/// <param name="len"> total length </param>
+template <typename T>
+void circshift(T* d_data, int frag_len, int shift, int len);
+
+
+template <typename T>
+__global__ void circShiftKernel(T* d_in, T* d_out, int frag_len, int shift_num, int len);
+
+
+/// <summary>
+/// doing circshift in frequency domain.
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="frag_len"></param>
+/// <param name="shift"></param>
 /// <param name="len"></param>
-/// <returns></returns>
-//__global__ void circShift(cuComplex* d_in, cuComplex* d_out, int frag_len, int shift_num, int len);
+/// <param name="handle"></param>
+/// <param name="plan_all_echo_c2c"></param>
+void circshiftFreq(cuComplex* d_data, int frag_len, float shift, int len, cublasHandle_t handle, cufftHandle plan_all_echo_c2c);
 
 
 /// <summary>
