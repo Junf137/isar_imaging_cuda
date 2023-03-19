@@ -61,6 +61,31 @@ struct RadarParameters
 };
 
 
+class CUDAHandle {
+private:
+	int echo_num;
+	int range_num;
+
+public:
+	// * Overall cuBlas handle
+	cublasHandle_t handle;
+
+	// * Overall cuFFT plan
+	cufftHandle plan_all_echo_c2c;
+	cufftHandle plan_one_echo_c2c;
+	cufftHandle plan_one_echo_r2c;  // implicitly forward
+	cufftHandle plan_one_echo_c2r;  // implicitly inverse
+
+
+public:
+
+	CUDAHandle(const int& echo_num, const int& range_num);
+
+	~CUDAHandle();
+
+};
+
+
 /// <summary>
 /// result_matrix = alpah * vec1 * vec2.' + result_matrix;
 /// for cuComplex number.
@@ -119,6 +144,13 @@ void getMax(cublasHandle_t handle, cuComplex* d_vec, int len, int* h_max_idx, cu
 void getMin(cublasHandle_t handle, float* d_vec, int len, int* min_idx, float* min_val);
 
 
+/// <summary>
+/// 
+/// </summary>
+/// <param name="a"></param>
+/// <param name="abs"></param>
+/// <param name="len"></param>
+/// <returns></returns>
 __global__ void elementwiseAbs(cuComplex* a, float* abs, int len);
 
 
@@ -254,16 +286,88 @@ __global__ void swap_range(T* a, T* b, int len)  // todo: separate definition an
 //__global__ void getMaxIdx(const T* data, const int dsize, int* result);
 
 
+///// <summary>
+///// get maximum value of every column
+///// Refference:  https://stackoverflow.com/questions/17698969/determining-the-least-element-and-its-position-in-each-matrix-column-with-cuda-t
+///// </summary>
+///// <param name="c"> data set, column is not coalescing </param>
+///// <param name="maxval"> vector to store maximum value </param>
+///// <param name="maxidx"> vector to store maximum value's index </param>
+///// <param name="row"> number of rows </param>
+///// <param name="col"> number of columns ></param>
+//void getMaxInColumns(thrust::device_vector<float>& c, thrust::device_vector<float>& maxval, thrust::device_vector<int>& maxidx, int row, int col);
+
+
 /// <summary>
-/// get maximum value of every column
-/// Refference:  https://stackoverflow.com/questions/17698969/determining-the-least-element-and-its-position-in-each-matrix-column-with-cuda-t
+/// Getting the max element of every single column in matrix d_data.
+/// Each block is responsible for the calculation of a single column.
+/// Kernel configuration requirements:
+/// (block number == cols)
+/// (shared memory size == thread per block)
 /// </summary>
-/// <param name="c"> data set, column is not coalescing </param>
-/// <param name="maxval"> vector to store maximum value </param>
-/// <param name="maxidx"> vector to store maximum value's index </param>
-/// <param name="row"> number of rows </param>
-/// <param name="col"> number of columns ></param>
-void getMaxInColumns(thrust::device_vector<float>& c, thrust::device_vector<float>& maxval, thrust::device_vector<int>& maxidx, int row, int col);
+/// <param name="d_data"></param>
+/// <param name="d_max_clos"></param>
+/// <param name="rows"></param>
+/// <param name="cols"></param>
+/// <returns></returns>
+__global__ void maxCols(float* d_data, float* d_max_clos, int rows, int cols);
+
+
+///// <summary>
+///// Expanding index.
+///// Expanding the unmber of every element in vector starting from first2 to the corresponding value in vector starting from frist1 and ending at end1.
+///// first {2,2,2}. second {1,2,3}. output {1,1,2,2,3,3}.
+///// </summary>
+///// <typeparam name="InputIterator1"></typeparam>
+///// <typeparam name="InputIterator2"></typeparam>
+///// <typeparam name="OutputIterator"></typeparam>
+///// <param name="first1"></param>
+///// <param name="last1"></param>
+///// <param name="first2"></param>
+///// <param name="output"></param>
+///// <returns></returns>
+//template <typename InputIterator1, typename InputIterator2, typename OutputIterator>
+//OutputIterator expand(InputIterator1 first1, InputIterator1 last1, InputIterator2 first2, OutputIterator output);
+//
+//
+///// <summary>
+///// Calculating summation of each row of matrix d_data alone the second dimension.
+///// </summary>
+///// <param name="d_data"></param>
+///// <param name="d_sum_rows"></param>
+///// <param name="row"></param>
+///// <param name="col"></param>
+//void sumRows_thr(cuComplex* d_data, cuComplex* d_sum_rows, const int& row, const int& col);
+
+
+/// <summary>
+/// Calculate summation of every column. Equal to sum(d_data, 1) in matlab.
+/// Each block is responsible for summing a single column.
+/// Kernel configuration requirements:
+/// (block number == cols)
+/// (shared memory size == thread per block)
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="rows"></param>
+/// <param name="cols"></param>
+/// <param name="sum_clos"></param>
+/// <returns></returns>
+__global__ void sumCols(float* d_data, float* sum_clos, int rows, int cols);
+
+
+/// <summary>
+/// Calculate summation of every rows. Equal to sum(d_data, 2) in matlab.
+/// Each block is responsible for summing a single row.
+/// Kernel configuration requirements:
+/// (block number == rows)
+/// (shared memory size == thread per block)
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="rows"></param>
+/// <param name="cols"></param>
+/// <param name="sum_rows"></param>
+/// <returns></returns>
+__global__ void sumRows(cuComplex* d_data, cuComplex* sum_rows, int rows, int cols);
 
 
 /// <summary>
@@ -273,7 +377,7 @@ void getMaxInColumns(thrust::device_vector<float>& c, thrust::device_vector<floa
 /// <param name="paras"></param>
 /// <param name="range_num_cut"></param>
 /// <param name="handle"></param>
-void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& range_num_cut, cublasHandle_t handle);
+void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& range_num_cut, const CUDAHandle& handles);
 
 
 /// <summary>
@@ -318,7 +422,7 @@ __global__ void setNumInArray(int* arrays, int* index, int set_num, int num_inde
 /// <param name="echo_num"></param>
 /// <param name="range_num"></param>
 /// <param name="d_fftshift"></param>
-void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const int& echo_num, const int& range_num, float* hamming, cufftHandle plan_all_echo_c2c);
+void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, float* hamming, const RadarParameters& paras, const CUDAHandle& handles);
 
 
 /// <summary>

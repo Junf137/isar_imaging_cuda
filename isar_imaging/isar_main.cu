@@ -24,19 +24,8 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 
 	int data_num = paras.echo_num * paras.range_num;
 
-	// * Overall cuBlas handle
-	cublasHandle_t handle;
-	checkCudaErrors(cublasCreate(&handle));
-
-	// * Overall cuFFT plan
-	cufftHandle plan_all_echo_c2c;
-	checkCudaErrors(cufftPlan1d(&plan_all_echo_c2c, paras.range_num, CUFFT_C2C, paras.echo_num));
-	cufftHandle plan_one_echo_c2c;
-	checkCudaErrors(cufftPlan1d(&plan_one_echo_c2c, paras.range_num, CUFFT_C2C, 1));
-	cufftHandle plan_one_echo_r2c;  // implicitly forward
-	checkCudaErrors(cufftPlan1d(&plan_one_echo_r2c, paras.range_num, CUFFT_R2C, 1));
-	cufftHandle plan_one_echo_c2r;  // implicitly inverse
-	checkCudaErrors(cufftPlan1d(&plan_one_echo_c2r, paras.range_num, CUFFT_C2R, 1));
+	// * Overall cuBlas and cuFFT handle
+	CUDAHandle handles(paras.echo_num, paras.range_num);
 
 	// * Overall kernal function configuration
 	dim3 block(256);  // block size
@@ -76,7 +65,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 		auto tStart_HPC = std::chrono::high_resolution_clock::now();
 
 		// * Starting HPC
-		highSpeedCompensation(d_data, paras.Fs, paras.band_width, paras.Tp, d_velocity, paras.echo_num, paras.range_num, handle);
+		highSpeedCompensation(d_data, d_velocity, paras, handles);
 		
 		auto tEnd_HPC = std::chrono::high_resolution_clock::now();
 
@@ -114,7 +103,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	auto tStart_HRRP = std::chrono::high_resolution_clock::now();
 
 	// d_hrrp = fftshift(fft(hamming ,* d_data))
-	getHRRP(d_hrrp, d_data, paras.echo_num, paras.range_num, hamming, plan_all_echo_c2c);
+	getHRRP(d_hrrp, d_data, hamming, paras, handles);
 
 	auto tEnd_HRRP = std::chrono::high_resolution_clock::now();
 
@@ -130,13 +119,13 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	auto tStart_RA = std::chrono::high_resolution_clock::now();
 
 	// * Range Alignment
-	rangeAlignment(d_data, hamming, paras, handle, plan_one_echo_c2c, plan_one_echo_r2c, plan_one_echo_c2r);
+	rangeAlignment(d_data, hamming, paras, handles);
 
 	auto tEnd_RA_1 = std::chrono::high_resolution_clock::now();
 
 	// * Centering HRRP
 	unsigned int inter_length = 30;
-	HRRPCenter(d_data, paras, inter_length, handle, plan_all_echo_c2c);
+	HRRPCenter(d_data, inter_length, paras, handles);
 
 	auto tEnd_RA_2 = std::chrono::high_resolution_clock::now();
 	std::cout << "[Time consumption(range alignment)] " << std::chrono::duration_cast<std::chrono::milliseconds>(tEnd_RA_1 - tStart_RA).count() << "ms\n";
@@ -153,7 +142,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 
 	int range_num_cut = 512;
 
-	cutRangeProfile(d_data, paras, range_num_cut, handle);
+	cutRangeProfile(d_data, paras, range_num_cut, handles);
 	data_num = paras.echo_num * paras.range_num;
 
 	auto tEnd_cut = std::chrono::high_resolution_clock::now();
@@ -182,12 +171,12 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	auto tPC_2 = std::chrono::high_resolution_clock::now();
 
 	// * Range Variant Phase Compensation
-	rangeVariantPhaseComp(d_data, paras, h_azimuth, h_pitch, handle);
+	rangeVariantPhaseComp(d_data, h_azimuth, h_pitch, paras, handles);
 
 	auto tPC_3 = std::chrono::high_resolution_clock::now();
 
 	// * Fast Entropy
-	fastEntropy(d_data, paras.echo_num, paras.range_num, handle);
+	fastEntropy(d_data, paras.echo_num, paras.range_num, handles);
 
 	auto tPC_4 = std::chrono::high_resolution_clock::now();
 
@@ -215,10 +204,6 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	checkCudaErrors(cudaFree(d_data));
 	checkCudaErrors(cudaFree(hamming));
 	checkCudaErrors(cudaFree(d_hrrp));
-	
-	checkCudaErrors(cublasDestroy(handle));
-	
-	checkCudaErrors(cufftDestroy(plan_all_echo_c2c));
-	checkCudaErrors(cufftDestroy(plan_one_echo_c2c));
+
 	return EXIT_SUCCESS;
 }

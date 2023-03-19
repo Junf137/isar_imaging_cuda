@@ -1,6 +1,6 @@
 ﻿#include "range_alignment.cuh"
 
-void rangeAlignment(cuComplex* d_data, float* hamming_window, RadarParameters paras, cublasHandle_t handle, cufftHandle plan_one_echo_c2c, cufftHandle plan_one_echo_r2c, cufftHandle plan_one_echo_c2r)
+void rangeAlignment(cuComplex* d_data, float* hamming_window, const RadarParameters& paras, const CUDAHandle& handles)
 {
 	int data_num = paras.echo_num * paras.range_num;
 
@@ -23,8 +23,8 @@ void rangeAlignment(cuComplex* d_data, float* hamming_window, RadarParameters pa
 
 	// * Handle First Echo Signal
 	// d_data(1,:) = ifft(d_data(1,:))
-	checkCudaErrors(cufftExecC2C(plan_one_echo_c2c, d_data, d_data, CUFFT_INVERSE));
-	checkCudaErrors(cublasCsscal(handle, paras.range_num, &scal_ifft, d_data, 1));
+	checkCudaErrors(cufftExecC2C(handles.plan_one_echo_c2c, d_data, d_data, CUFFT_INVERSE));
+	checkCudaErrors(cublasCsscal(handles.handle, paras.range_num, &scal_ifft, d_data, 1));
 
 	float* d_vec_a = nullptr;// vector a
 	checkCudaErrors(cudaMalloc((void**)&d_vec_a, sizeof(float) * paras.range_num));
@@ -59,16 +59,16 @@ void rangeAlignment(cuComplex* d_data, float* hamming_window, RadarParameters pa
 		cuComplex* d_data_i = d_data + i * paras.range_num;
 
 		// vec_a = abs(ifft(d_data(i,:)));
-		checkCudaErrors(cufftExecC2C(plan_one_echo_c2c, d_data_i, d_ifft_temp, CUFFT_INVERSE));
-		checkCudaErrors(cublasCsscal(handle, paras.range_num, &scal_ifft, d_ifft_temp, 1));
+		checkCudaErrors(cufftExecC2C(handles.plan_one_echo_c2c, d_data_i, d_ifft_temp, CUFFT_INVERSE));
+		checkCudaErrors(cublasCsscal(handles.handle, paras.range_num, &scal_ifft, d_ifft_temp, 1));
 		elementwiseAbs << <grid_one_echo, block >> > (d_ifft_temp, d_vec_a, paras.range_num);
 		checkCudaErrors(cudaDeviceSynchronize());
 
 		// calculate correlation of vec_a and vec_b
-		getCorrelation(d_vec_corr, d_vec_a, d_vec_b, paras.range_num, plan_one_echo_r2c, plan_one_echo_c2r);
+		getCorrelation(d_vec_corr, d_vec_a, d_vec_b, paras.range_num, handles.plan_one_echo_r2c, handles.plan_one_echo_c2r);
 
 		// max position in correlation of vec_corr
-		checkCudaErrors(cublasIsamax(handle, paras.range_num, d_vec_corr, 1, &maxPos));
+		checkCudaErrors(cublasIsamax(handles.handle, paras.range_num, d_vec_corr, 1, &maxPos));
 		--maxPos;  // cuBlas using 1-based indexing
 
 		// get precise max position using binominal fitting
@@ -87,8 +87,8 @@ void rangeAlignment(cuComplex* d_data, float* hamming_window, RadarParameters pa
 		checkCudaErrors(cudaDeviceSynchronize());
 
 		// d_data(i,:) = ifft(d_data(i,:))
-		checkCudaErrors(cufftExecC2C(plan_one_echo_c2c, d_data_i, d_data_i, CUFFT_INVERSE));
-		checkCudaErrors(cublasCsscal(handle, paras.range_num, &scal_ifft, d_data_i, 1));
+		checkCudaErrors(cufftExecC2C(handles.plan_one_echo_c2c, d_data_i, d_data_i, CUFFT_INVERSE));
+		checkCudaErrors(cublasCsscal(handles.handle, paras.range_num, &scal_ifft, d_data_i, 1));
 
 		// update template vector b using aligned vector
 		// d_vec_b = 0.95f * d_vec_b + abs(d_data(i,:))
@@ -120,31 +120,35 @@ __global__ void genFreqCenteringVec(float* hamming, cuComplex* d_freq_centering_
 
 void getCorrelation(float* d_vec_corr, float* d_vec_a, float* d_vec_b, int len, cufftHandle plan_one_echo_r2c, cufftHandle plan_one_echo_c2r)
 {
-	dim3 block(256);  // block size
-	dim3 grid((len + block.x - 1) / block.x);  // grid size
+	// * configuring datalayout 
+	int fft_len = static_cast<int>(len / 2) + 1;
 
-	// fft_a
+	dim3 block(256);
+	dim3 grid((len + block.x - 1) / block.x);
+	dim3 grid_fft((fft_len + block.x - 1) / block.x);
+
+	// * fft_a
 	cuComplex* d_fft_a = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_fft_a, sizeof(cuComplex) * (len / 2 + 1)));
+	checkCudaErrors(cudaMalloc((void**)&d_fft_a, sizeof(cuComplex) * fft_len));
 	checkCudaErrors(cufftExecR2C(plan_one_echo_r2c, d_vec_a, d_fft_a));
 
-	// fft_b
+	// * fft_b
 	cuComplex* d_fft_b = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_fft_b, sizeof(cuComplex) * (len / 2 + 1)));
+	checkCudaErrors(cudaMalloc((void**)&d_fft_b, sizeof(cuComplex) * fft_len));
 	checkCudaErrors(cufftExecR2C(plan_one_echo_r2c, d_vec_b, d_fft_b));
 
-	// conj multiply, result store in fft_b
-	elementwiseMultiplyConjA << <grid, block >> > (d_fft_a, d_fft_b, d_fft_b, len);
+	// * conj multiply, result store in fft_b
+	elementwiseMultiplyConjA << <grid_fft, block >> > (d_fft_a, d_fft_b, d_fft_b, fft_len);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// corr = ifft( conj(fft(a)) * fft(b) )
+	// * corr = ifft( conj(fft(a)) * fft(b) )
 	checkCudaErrors(cufftExecC2R(plan_one_echo_c2r, d_fft_b, d_vec_corr));
 
-	// fftshift(corr)
+	// * fftshift(corr)
 	swap_range<float> << <grid, block >> > (d_vec_corr, d_vec_corr + len / 2, len / 2);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// free GPU mallocated space
+	// * free GPU mallocated space
 	checkCudaErrors(cudaFree(d_fft_a));
 	checkCudaErrors(cudaFree(d_fft_b));
 }
@@ -182,7 +186,7 @@ __global__ void genFreqMovVec(cuComplex* d_freq_mov_vec, float shit_num, int len
 }
 
 
-void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length, cublasHandle_t handle, cufftHandle plan_all_echo_c2c)
+void HRRPCenter(cuComplex* d_data, const int& inter_length, const RadarParameters& paras, const CUDAHandle& handles)
 {
 	int data_num = paras.echo_num * paras.range_num;
 
@@ -199,9 +203,9 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 
 	int hrrp0_max_idx = 0;
 	float hrrp0_max_val = 0.0f;  // max(abs(d_hrrp))
-	getMax(handle, d_hrrp, data_num, &hrrp0_max_idx, &hrrp0_max_val);
+	getMax(handles.handle, d_hrrp, data_num, &hrrp0_max_idx, &hrrp0_max_val);
 	hrrp0_max_val = 1 / hrrp0_max_val;
-	checkCudaErrors(cublasSscal(handle, data_num, &hrrp0_max_val, d_hrrp, 1));  // d_hrrp = d_hrrp / max(abs(d_hrrp))
+	checkCudaErrors(cublasSscal(handles.handle, data_num, &hrrp0_max_val, d_hrrp, 1));  // d_hrrp = d_hrrp / max(abs(d_hrrp))
 
 	// * HRRP_ARP
 	thrust::device_vector<float> thr_ones_echo_num(paras.echo_num, 1.0f);
@@ -213,7 +217,7 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 	thrust::device_vector<float> arp(paras.range_num);
 	float* d_arp = thrust::raw_pointer_cast(arp.data());  // d_arp = sum(d_hrrp) / echo_num
 
-	checkCudaErrors(cublasSgemv(handle, CUBLAS_OP_N, paras.range_num, paras.echo_num, &alpha,
+	checkCudaErrors(cublasSgemv(handles.handle, CUBLAS_OP_N, paras.range_num, paras.echo_num, &alpha,
 		d_hrrp, paras.range_num, ones_echo_num, 1, &beta, d_arp, 1));
 
 	// * Calculate Noise Threshold
@@ -223,7 +227,7 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 
 	int arp1_max_idx = 0;
 	float arp1_max_val = 0.0f;  // max(abs(arp1))
-	getMax(handle, d_arp1, paras.range_num, &arp1_max_idx, &arp1_max_val);
+	getMax(handles.handle, d_arp1, paras.range_num, &arp1_max_idx, &arp1_max_val);
 
 	float extra_value = static_cast<float>(inter_length) * arp1_max_val / static_cast<float>(paras.range_num);
 	int diff_length = paras.range_num - inter_length;
@@ -235,7 +239,7 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 
 	int diff_min_idx = 0;
 	float diff_min_val = 0.0f;
-	getMin(handle, d_diff, diff_length, &diff_min_idx, &diff_min_val);
+	getMin(handles.handle, d_diff, diff_length, &diff_min_idx, &diff_min_val);
 
 	float low_threshold_gray = arp1[diff_min_idx + static_cast<int>(inter_length / 2)];
 
@@ -284,7 +288,7 @@ void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length
 		int shift_num = -(mean_indice - paras.range_num / 2 + 1);  // todo: +1???
 
 		// * circshift(d_data,[0, shiftnum])
-		circshiftFreq(d_data, paras.range_num, static_cast<float>(shift_num), data_num, handle, plan_all_echo_c2c);
+		circshiftFreq(d_data, paras.range_num, static_cast<float>(shift_num), data_num, handles.handle, handles.plan_all_echo_c2c);
 	}
 
 	// * Free GPU Mallocated Space

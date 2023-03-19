@@ -5,48 +5,6 @@
 
 
 /// <summary>
-/// Expand indexing.
-/// Expanding the unmber of every element in vector starting from first2 to the corresponding value in vector starting from frist1 and ending at end1.
-/// first {2,2,2}. second {1,2,3}. output {1,1,2,2,3,3}.
-/// </summary>
-/// <typeparam name="InputIterator1"></typeparam>
-/// <typeparam name="InputIterator2"></typeparam>
-/// <typeparam name="OutputIterator"></typeparam>
-/// <param name="first1"></param>
-/// <param name="last1"></param>
-/// <param name="first2"></param>
-/// <param name="output"></param>
-/// <returns></returns>
-template <typename InputIterator1, typename InputIterator2, typename OutputIterator>
-OutputIterator expand(InputIterator1 first1, InputIterator1 last1, InputIterator2 first2, OutputIterator output)
-{
-	typedef typename thrust::iterator_difference<InputIterator1>::type difference_type;
-
-	difference_type input_size = thrust::distance(first1, last1);
-	difference_type output_size = thrust::reduce(first1, last1);
-
-	// scan the counts to obtain output offsets for each input element
-	thrust::device_vector<difference_type> output_offsets(input_size, 0);
-	thrust::exclusive_scan(first1, last1, output_offsets.begin());
-
-	// scatter the nonzero counts into their corresponding output positions
-	thrust::device_vector<difference_type> output_indices(output_size, 0);
-	thrust::scatter_if (thrust::counting_iterator<difference_type>(0), thrust::counting_iterator<difference_type>(input_size), output_offsets.begin(), first1, output_indices.begin());
-
-	// compute max-scan over the output indices, filling in the holes
-	thrust::inclusive_scan(output_indices.begin(), output_indices.end(), output_indices.begin(), thrust::maximum<difference_type>());
-
-	// gather input values according to index array (output = first2[output_indices])
-	OutputIterator output_end = output; thrust::advance(output_end, output_size);
-	thrust::gather(output_indices.begin(), output_indices.end(), first2, output);
-
-	// return output + output_size
-	thrust::advance(output, output_size);
-	return output;
-}
-
-
-/// <summary>
 /// Doppler tracking. Achieving Coarse phase caliberation.
 /// </summary>
 /// <param name="d_data"></param>
@@ -56,15 +14,16 @@ void dopplerTracking(cuComplex* d_data, const int& echo_num, const int& range_nu
 
 
 /// <summary>
-/// d_res = d_data * diag(d_vec)
+/// d_res = diag(d_diag) * d_data
+/// d_diag is a vector of size len / cols.
 /// </summary>
-/// <param name="d_res"></param>
-/// <param name="d_vec"></param>
+/// <param name="d_diag"></param>
 /// <param name="d_data"></param>
-/// <param name="rows"></param>
+/// <param name="d_res"></param>
 /// <param name="cols"></param>
+/// <param name="len"></param>
 /// <returns></returns>
-__global__ void Compensate_Phase(cuComplex* d_res, cuComplex* d_vec, cuComplex* d_data, int rows, int cols);
+__global__ void diagMulMat(cuComplex* d_diag, cuComplex* d_data, cuComplex* d_res, int cols, int len);
 
 
 /// <summary>
@@ -75,7 +34,7 @@ __global__ void Compensate_Phase(cuComplex* d_res, cuComplex* d_vec, cuComplex* 
 /// <param name="h_azimuth"></param>
 /// <param name="h_pitch"></param>
 /// <param name="handle"></param>
-void rangeVariantPhaseComp(cuComplex* d_data, const RadarParameters& paras, float* h_azimuth, float* h_pitch, cublasHandle_t handle);
+void rangeVariantPhaseComp(cuComplex* d_data, float* h_azimuth, float* h_pitch, const RadarParameters& paras, const CUDAHandle& handles);
 
 
 /// <summary>
@@ -85,7 +44,7 @@ void rangeVariantPhaseComp(cuComplex* d_data, const RadarParameters& paras, floa
 /// <param name="echo_num"></param>
 /// <param name="range_num"></param>
 /// <param name="handle"></param>
-void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, cublasHandle_t handle);
+void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, const CUDAHandle& handles);
 
 
 /// <summary>

@@ -48,83 +48,23 @@ __global__ void circshiftInTime(float* data, int n, int shift)
     }
 }
 
-template <typename T>
-__global__ void circShiftKernel(T* d_in, T* d_out, int frag_len, int shift_num, int len)
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid < len)
-    {
-        //int base = static_cast<int>(tid / frag_len) * frag_len;
-        //int offset = (tid % frag_len + shift_num) % frag_len;
-        d_out[static_cast<int>(tid / frag_len) * frag_len + (tid % frag_len + shift_num) % frag_len] = d_in[tid];
-    }
-}
-
-template <typename T>
-void circshift(T* d_data, int frag_len, int shift, int len)
-{
-    T* d_data_temp = nullptr;
-    checkCudaErrors(cudaMalloc((void**)&d_data_temp, sizeof(T) * len));
-
-    dim3 block(256);  // block size
-    dim3 grid((len + block.x - 1) / block.x);  // grid size
-    circShiftKernel << <grid, block >> > (d_data, d_data_temp, frag_len, shift, len);
-    checkCudaErrors(cudaDeviceSynchronize());
-
-    //checkCudaErrors(cudaFree(d_data));
-    //d_data = d_data_temp;
-    checkCudaErrors(cudaMemcpy(d_data, d_data_temp, sizeof(T) * len, cudaMemcpyDeviceToDevice));
-    checkCudaErrors(cudaFree(d_data_temp));
-}
-
-void testCircshift();
 
 void cufftTest();
 
+
 void cuBlasTest();
 
+
 void test();
-
-template <typename T>
-__global__ void swap_range(T* a, T* b, int len)
-{
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (tid < len) {
-        T c = a[tid]; a[tid] = b[tid]; b[tid] = c;
-    }
-}
 
 
 int main()
 {
-    testCircshift();
+    test();
 }
 
 void test()
 {
-    int len = 10;
-    float* h_arr = new float[len];
-    for (int i = 0; i < len; ++i) {
-        h_arr[i] = static_cast<float>(i + 1);
-    }
-
-    float* d_arr = nullptr;
-    checkCudaErrors(cudaMalloc((void**)&d_arr, sizeof(float) * len));
-    checkCudaErrors(cudaMemcpy(d_arr, h_arr, sizeof(float) * len, cudaMemcpyHostToDevice));
-
-    swap_range<float> << <1, len >> > (d_arr, d_arr + len / 2, len / 2);
-    checkCudaErrors(cudaDeviceSynchronize());
-
-    checkCudaErrors(cudaMemcpy(h_arr, d_arr, sizeof(float) * len, cudaMemcpyDeviceToHost));
-    for (int i = 0; i < len; ++i) {
-        std::cout << h_arr[i] << " ";
-    }
-}
-
-void testCircshift()
-{
-    int shift = 3;
     int echo = 2;
     int range = 20;
     int data_num = echo * range;
@@ -145,17 +85,17 @@ void testCircshift()
     checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * data_num));
     checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(cuComplex) * data_num, cudaMemcpyHostToDevice));
 
-    circshift(d_data, range, shift, data_num);
+    cuComplex* d_sum_row = nullptr;
+    checkCudaErrors(cudaMalloc((void**)&d_sum_row, sizeof(cuComplex) * echo));
 
-    checkCudaErrors(cudaMemcpy(h_data, d_data, sizeof(cuComplex) * data_num, cudaMemcpyDeviceToHost));
+    //
 
-    for (int i = 0; i < data_num; ++i) {
-        if (i % range == 0) {
-            std::cout << "\n";
-        }
-        std::cout << h_data[i] << " ";
+    std::complex<float>* h_sum_row = new std::complex<float>[echo];
+    checkCudaErrors(cudaMemcpy(h_sum_row, d_sum_row, sizeof(cuComplex) * echo, cudaMemcpyDeviceToHost));
+
+    for (int i = 0; i < echo; ++i) {
+        std::cout << h_sum_row[i] << " ";
     }
-
 }
 
 void cuBlasTest()
@@ -188,14 +128,14 @@ void cuBlasTest()
 
     checkCudaErrors(cublasIsamax(handle, len, d_arr, 1, &max_idx));
     --max_idx;
-    
+
     //checkCudaErrors(cudaMemcpy(h_arr, d_arr, sizeof(float) * len, cudaMemcpyDeviceToHost));
     //for (int i = 0; i < len; ++i) {
     //    std::cout << h_arr[i] << " ";
     //}
 
     std::cout << max_idx;
-    
+
 }
 
 void cufftTest() {
@@ -218,7 +158,7 @@ void cufftTest() {
     //    std::cout << thr_d_data[i] << " ";
     //} std::cout << "\n";
 
-    
+
     cufftHandle plan;
     cufftPlan1d(&plan, len, CUFFT_C2C, 1);
 

@@ -14,7 +14,7 @@
 /// <param name="plan_one_echo_c2c"></param>
 /// <param name="plan_one_echo_r2c"></param>
 /// <param name="plan_one_echo_c2r"></param>
-void rangeAlignment(cuComplex* d_data, float* hamming_window, RadarParameters paras, cublasHandle_t handle, cufftHandle plan_one_echo_c2c, cufftHandle plan_one_echo_r2c, cufftHandle plan_one_echo_c2r);
+void rangeAlignment(cuComplex* d_data, float* hamming_window, const RadarParameters& paras, const CUDAHandle& handles);
 
 
 /// <summary>
@@ -76,7 +76,7 @@ __global__ void genFreqMovVec(cuComplex* d_freq_mov_vec, float shit_num, int len
 /// <param name="inter_length"></param>
 /// <param name="handle"></param>
 /// <param name="plan_all_echo_c2c"></param>
-void HRRPCenter(cuComplex* d_data, RadarParameters paras, const int inter_length, cublasHandle_t handle, cufftHandle plan_all_echo_c2c);
+void HRRPCenter(cuComplex* d_data, const int& inter_length, const RadarParameters& paras, const CUDAHandle& handles);
 
 
 /// <summary>

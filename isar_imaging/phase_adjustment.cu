@@ -6,31 +6,26 @@ void dopplerTracking(cuComplex* d_data, const int& echo_num, const int& range_nu
 	int data_num = echo_num * range_num;
 	int data_num_less_echo = (echo_num - 1) * range_num;
 
-	// * Generating keys for reduce_by_key
-	thrust::device_vector<int> oriKey(echo_num - 1);
-	thrust::sequence(thrust::device, oriKey.begin(), oriKey.end(), 1);
-
-	thrust::device_vector<int> d_counts(echo_num - 1, range_num);
-	thrust::device_vector<int> keyVec(data_num_less_echo);    // 1,...,1,...,...,255,...,255
-
-	// * Expand keys according to counts															  
-	expand(d_counts.begin(), d_counts.end(), oriKey.begin(), keyVec.begin());
+	dim3 block(256);
+	dim3 grid((data_num + block.x - 1) / block.x);
+	dim3 grid_less_echo((data_num_less_echo + block.x - 1) / block.x);
 
 	// * Applying conjugate multiplication on two successive raws
-	thrust::device_ptr<comThr> thr_d_data = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_data));
-
-	thrust::device_vector<comThr> mulRes(data_num_less_echo);
-	thrust::transform(thrust::device, thr_d_data, thr_d_data + data_num_less_echo, thr_d_data + range_num, mulRes.begin(), \
-		[]__host__ __device__(const comThr & x, const comThr & y) { return thrust::conj(x) * y; });
+	cuComplex* d_mul_res = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_mul_res, sizeof(cuComplex) * data_num_less_echo));
+	elementwiseMultiplyConjA << <grid_less_echo, block >> > (d_data, d_data + range_num, d_mul_res, data_num_less_echo);
+	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * Sum mulRes in raws
 	thrust::device_vector<comThr> xw(echo_num - 1);
-	thrust::reduce_by_key(thrust::device, keyVec.begin(), keyVec.end(), mulRes.begin(), thrust::make_discard_iterator(), xw.begin());
+	cuComplex* d_xw = reinterpret_cast<cuComplex*>(thrust::raw_pointer_cast(xw.data()));
+	sumRows << <echo_num, 1024, 1024 * sizeof(cuComplex) >> > (d_mul_res, d_xw, echo_num - 1, range_num);
+	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * Getting compensation andle
 	thrust::device_vector<float> angle(echo_num - 1);
 	thrust::transform(thrust::device, xw.begin(), xw.end(), angle.begin(), \
-		[]__host__ __device__(const comThr& x) { return thrust::arg((x / thrust::abs(x))); });
+		[]__host__ __device__(const comThr & x) { return thrust::arg((x / thrust::abs(x))); });
 
 	thrust::inclusive_scan(thrust::device, angle.begin(), angle.end(), angle.begin());
 
@@ -44,25 +39,25 @@ void dopplerTracking(cuComplex* d_data, const int& echo_num, const int& range_nu
 	// * Compensation
 	cuComplex* d_phaseC = reinterpret_cast<cuComplex*>(thrust::raw_pointer_cast(phaseC.data()));
 
-	dim3 block(256);  // block size
-	dim3 grid((data_num + block.x - 1) / block.x);  // grid size
-
-	Compensate_Phase << <grid, block >> > (d_data, d_phaseC, d_data, echo_num, range_num);
+	diagMulMat << <grid, block >> > (d_phaseC, d_data, d_data, range_num, data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
+
+	// * Free Malocated Space
+	checkCudaErrors(cudaFree(d_mul_res));
 }
 
 
-__global__ void Compensate_Phase(cuComplex* d_res, cuComplex* d_vec, cuComplex* d_data, int rows, int cols)
+__global__ void diagMulMat(cuComplex* d_diag, cuComplex* d_data, cuComplex* d_res, int cols, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if (tid < rows * cols) {
-		d_res[tid] = cuCmulf(d_vec[int(tid / cols)], d_data[tid]);
+	if (tid < len) {
+		d_res[tid] = cuCmulf(d_diag[static_cast<int>(tid / cols)], d_data[tid]);
 	}
 }
 
 
-void rangeVariantPhaseComp(cuComplex* d_data, const RadarParameters& paras, float* h_azimuth, float* h_pitch, cublasHandle_t handle)
+void rangeVariantPhaseComp(cuComplex* d_data, float* h_azimuth, float* h_pitch, const RadarParameters& paras, const CUDAHandle& handles)
 {
 	int data_num = paras.echo_num * paras.range_num;
 
@@ -79,7 +74,6 @@ void rangeVariantPhaseComp(cuComplex* d_data, const RadarParameters& paras, floa
 	checkCudaErrors(cudaMalloc((void**)&d_pitch, sizeof(float) * paras.echo_num));
 	checkCudaErrors(cudaMemcpy(d_pitch, h_pitch, sizeof(float) * paras.echo_num, cudaMemcpyHostToDevice));
 
-	// 参数设置
 	float resolution = static_cast<float>(LIGHT_SPEED_h) / static_cast<float>(2 * paras.band_width);
 	float wave_length = static_cast<float>(LIGHT_SPEED_h) / static_cast<float>(paras.fc);
 
@@ -99,7 +93,7 @@ void rangeVariantPhaseComp(cuComplex* d_data, const RadarParameters& paras, floa
 	float mid_z = cosf(middle_pitch / 180 * PI_h) * sinf(middle_azimuth / 180 * PI_h);
 
 	thrust::transform(thrust::device, thr_azimuth, thr_azimuth + paras.echo_num, thr_pitch, theta.begin(), \
-		[=]__host__ __device__(const float& cur_azi, const float& cur_pit) 
+		[=]__host__ __device__(const float& cur_azi, const float& cur_pit)
 	{
 		float x = sinf(cur_pit / 180 * PI_h);
 		float y = cosf(cur_pit / 180 * PI_h) * cosf(cur_azi / 180 * PI_h);
@@ -116,14 +110,14 @@ void rangeVariantPhaseComp(cuComplex* d_data, const RadarParameters& paras, floa
 	float* comp_mat = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&comp_mat, sizeof(float) * data_num));
 	checkCudaErrors(cudaMemset(comp_mat, 0, sizeof(float) * data_num));
-	
+
 	// 08-05-2020 修改
-	vecMulvec(handle, comp_mat, range, theta, 1.0f);
+	vecMulvec(handles.handle, comp_mat, range, theta, 1.0f);
 	thrust::device_ptr<float> thr_comp_mat = thrust::device_pointer_cast(comp_mat);
 	thrust::device_ptr<comThr> thr_data = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_data));
 
 	thrust::transform(thrust::device, thr_comp_mat, thr_comp_mat + data_num, thr_data, thr_data, \
-		[]__host__ __device__(const float& x, const comThr& y) { return y * thrust::exp(comThr(0.0, -2 * PI_h * x)); });
+		[]__host__ __device__(const float& x, const comThr & y) { return y * thrust::exp(comThr(0.0, -2 * PI_h * x)); });
 
 	// Free Allocated GPU Memory
 	checkCudaErrors(cudaFree(d_azimuth));
@@ -132,42 +126,46 @@ void rangeVariantPhaseComp(cuComplex* d_data, const RadarParameters& paras, floa
 }
 
 
-void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, cublasHandle_t handle)
+void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, const CUDAHandle& handles)
 {
 	// 参数设置，新版数据格式是列主序，旧版是行主序，因此需要先转置
 	// 列主序输入后续操作可能会简单一点，但懒得改了，春节后再改
 	// 要改什么忘记了。。。
-	// 08-06-2020改，d_data->d_data
 
 	int data_num = echo_num * range_num;
 
+	dim3 block(256);  // block size
+	dim3 grid((data_num + block.x - 1) / block.x);  // grid size
+
 	// * pre-processing and pre-imaging
-	comThr* thr_DataTemp = reinterpret_cast<comThr*>(d_data);
-	thrust::device_ptr<comThr> thr_Data = thrust::device_pointer_cast(thr_DataTemp);
-	thrust::device_vector<float> thr_DataAbs(data_num);
+	float* d_data_abs = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_data_abs, sizeof(float) * data_num));
 
 	// abs(RetData_RA)
-	thrust::transform(thrust::device, thr_Data, thr_Data + data_num, thr_DataAbs.begin(), \
-		[]__host__ __device__(const comThr & a) { return thrust::abs(a); });
+	elementwiseAbs << <grid, block >> > (d_data, d_data_abs, data_num);
+	checkCudaErrors(cudaDeviceSynchronize());
 
-	thrust::device_vector<float> max_value(range_num);
-	thrust::device_vector<int> max_index(range_num);
-	// max_value = max(abs(RetData_RA),[],1);
-	getMaxInColumns(thr_DataAbs, max_value, max_index, echo_num, range_num);
+	float* d_max_val = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_max_val, sizeof(float) * range_num));
+
+	// * max_value = max(abs(RetData_RA),[],1);
+	maxCols << <range_num, 256, 256 * sizeof(int) >> > (d_data_abs, d_max_val, echo_num, range_num);
+	checkCudaErrors(cudaDeviceSynchronize());
 
 	// Test1<float>(max_value, range_num);
 	// mean_value = mean(max_value);
+	thrust::device_ptr<float> max_value = thrust::device_pointer_cast(d_max_val);
 	float init = 0.0f;
-	float mean_value = thrust::transform_reduce(thrust::device, max_value.begin(), max_value.end(), \
+	float mean_value = thrust::transform_reduce(thrust::device, max_value, max_value + range_num, \
 		[=]__host__ __device__(const float& x) { return x / float(range_num); }\
 		, init, thrust::plus<float>());
 
 	float threshold = 1.48f * mean_value;
 	// tgt_index = find(max_value>mean_value*1.48);
 	thrust::device_vector<int>tgt_index(range_num);
-	thrust::device_vector<int>::iterator end = thrust::copy_if(thrust::make_counting_iterator(0), thrust::make_counting_iterator(range_num), max_value.begin(), tgt_index.begin(), \
+		thrust::device_vector<int>::iterator end = thrust::copy_if(thrust::make_counting_iterator(0), thrust::make_counting_iterator(range_num), max_value, tgt_index.begin(), \
 		[=]__host__ __device__(const float& x) { return (x > threshold); });
-	
+
 	int tgt_num = static_cast<int>(end - tgt_index.begin());
 	tgt_index.resize(tgt_num);
 
@@ -183,7 +181,6 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	checkCudaErrors(cudaMalloc((void**)&Image1, sizeof(cuComplex) * data_num));
 
 	cufftHandle plan;
-
 	int batch_img = range_num;
 	int rank_img = 1;
 	int n_img[1] = { echo_num };
@@ -194,10 +191,7 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	int idist_img = 1;
 	int odist_img = 1;
 
-	checkCudaErrors(cufftPlanMany(&plan, rank_img, n_img,
-		inembed_img, istride_img, idist_img,
-		onembed_img, ostride_img, odist_img,
-		CUFFT_C2C, batch_img));
+	checkCudaErrors(cufftPlanMany(&plan, rank_img, n_img, inembed_img, istride_img, idist_img, onembed_img, ostride_img, odist_img, CUFFT_C2C, batch_img));
 	checkCudaErrors(cufftExecC2C(plan, d_preComData, Image1, CUFFT_FORWARD));
 
 	int num_unit1 = tgt_num;
@@ -208,7 +202,7 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 
 	// sqr_image = (abs(image2)).^2;
 	thrust::transform(thrust::device, thr_image, thr_image + data_num, sqrt_image.begin(), \
-		[]__host__ __device__(const comThr& x) { return powf(thrust::abs(x), 2); });
+		[]__host__ __device__(const comThr & x) { return powf(thrust::abs(x), 2); });
 
 	// sum_image_vector = sum(sqr_image);
 	float alpha = 1.0f;
@@ -220,7 +214,7 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	float* d_sumImg = reinterpret_cast<float*>(thrust::raw_pointer_cast(sum_image_vector.data()));
 
 	float* d_sqrtImg = reinterpret_cast<float*>(thrust::raw_pointer_cast(sqrt_image.data()));
-	checkCudaErrors(cublasSgemv(handle, CUBLAS_OP_N, range_num, echo_num, &alpha, d_sqrtImg, range_num, d_Ones, 1,
+	checkCudaErrors(cublasSgemv(handles.handle, CUBLAS_OP_N, range_num, echo_num, &alpha, d_sqrtImg, range_num, d_Ones, 1,
 		&beta, d_sumImg, 1));
 
 	// * find index of the first num_unit1 large values of sum_image_vector
@@ -238,7 +232,7 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	thrust::device_vector<float>mask_entropy(data_num, 0.0f);
 	float* d_mask_entropy = reinterpret_cast<float*>(thrust::raw_pointer_cast(mask_entropy.data()));
 
-	checkCudaErrors(cublasSger(handle, range_num, echo_num, &alpha, d_sumImg, 1, d_Ones, 1, d_mask_entropy, range_num));
+	checkCudaErrors(cublasSger(handles.handle, range_num, echo_num, &alpha, d_sumImg, 1, d_Ones, 1, d_mask_entropy, range_num));
 
 	thrust::transform(thrust::device, sqrt_image.begin(), sqrt_image.end(), mask_entropy.begin(), mask_entropy.begin(), thrust::divides<float>());
 
@@ -249,7 +243,7 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	thrust::device_vector<float>entropy(range_num, 0.0f);
 	float* d_entropy = reinterpret_cast<float*>(thrust::raw_pointer_cast(entropy.data()));
 
-	checkCudaErrors(cublasSgemv(handle, CUBLAS_OP_N, range_num, echo_num, &alpha, d_mask_entropy, range_num, d_Ones, 1,
+	checkCudaErrors(cublasSgemv(handles.handle, CUBLAS_OP_N, range_num, echo_num, &alpha, d_mask_entropy, range_num, d_Ones, 1,
 		&beta, d_entropy, 1));
 
 	/************************
@@ -275,10 +269,11 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	checkCudaErrors(cudaMalloc((void**)&newData, sizeof(cuComplex) * num_unit2 * echo_num));
 	unsigned int blockSize = num_unit2;
 	unsigned int gridSize = echo_num;
-	dim3 block(blockSize);
-	dim3 grid(gridSize);
+	dim3 block_(blockSize);
+	dim3 grid_(gridSize);
 
-	Select_Rangebins <<<grid, block >>> (newData, d_data, select_bin, echo_num, range_num, num_unit2);
+	Select_Rangebins << <grid_, block_ >> > (newData, d_data, select_bin, echo_num, range_num, num_unit2);
+	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * doppler phase tracking
 	isNeedCompensation = 0;
@@ -304,12 +299,7 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	cuComplex alpha_c = make_cuComplex(1.0f, 0.0f);
 	cuComplex beta_c = make_cuComplex(0.0f, 0.0f);
 
-	int blockSize_com = 64;    // set block and grid for phase compensation
-	int gridSize_com;
-	//cudaOccupancyMaxPotentialBlockSize(&minGridSize_com, &blockSize_com, Compensate_Phase, 0, 0);
-	gridSize_com = (num_unit2 * echo_num + blockSize_com - 1) / blockSize_com;
-	dim3 grid_com(gridSize_com);
-	dim3 block_com(blockSize_com);
+	dim3 grid_com((num_unit2* echo_num + block.x - 1) / block.x);
 
 	int batch = num_unit2;    // prepare for fft (along columns)
 	int rank = 1;
@@ -320,77 +310,70 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	int ostride = num_unit2;
 	int idist = 1;
 	int odist = 1;
-
-	checkCudaErrors(cufftPlanMany(&plan, rank, n,
-		inembed, istride, idist,
-		onembed, ostride, odist,
-		CUFFT_C2C, batch));
+	checkCudaErrors(cufftPlanMany(&plan, rank, n, inembed, istride, idist, onembed, ostride, odist, CUFFT_C2C, batch));
 
 	for (int ii = 0; ii < search_num; ii++) {
 
-		Compensate_Phase <<<grid_com, block_com >>> (d_tempData, d_phi, newData, echo_num, num_unit2);
+		diagMulMat << <grid_com, block >> > (d_phi, newData, d_tempData, num_unit2, echo_num* num_unit2);
+		checkCudaErrors(cudaDeviceSynchronize());
 
 		checkCudaErrors(cufftExecC2C(plan, (cufftComplex*)d_tempData, (cufftComplex*)d_tempData, CUFFT_FORWARD));
 
 		thrust::transform(thrust::device, thr_tempData, thr_tempData + echo_num * num_unit2, thr_tempData, \
-			[]__host__ __device__(comThr& x) { return x * thrust::abs(x); });
+			[]__host__ __device__(comThr & x) { return x * thrust::abs(x); });
 
 		checkCudaErrors(cufftExecC2C(plan, (cufftComplex*)d_tempData, (cufftComplex*)d_tempData, CUFFT_INVERSE));
 
 		thrust::transform(thrust::device, thr_newData, thr_newData + echo_num * num_unit2, thr_tempData, thr_tempData, \
-			[=]__host__ __device__(const comThr& x, const comThr& y) { return (thrust::conj(x) * (y / float(echo_num))); });
+			[=]__host__ __device__(const comThr & x, const comThr & y) { return (thrust::conj(x) * (y / float(echo_num))); });
 
-		checkCudaErrors(cublasCgemv(handle, CUBLAS_OP_T, num_unit2, echo_num, &alpha_c, d_tempData, num_unit2, d_rowSum, 1, &beta_c, d_phi, 1));
+		checkCudaErrors(cublasCgemv(handles.handle, CUBLAS_OP_T, num_unit2, echo_num, &alpha_c, d_tempData, num_unit2, d_rowSum, 1, &beta_c, d_phi, 1));
 
 		thrust::transform(thrust::device, Phase_select.begin(), Phase_select.end(), Phase_select.begin(), \
-			[]__host__ __device__(const comThr& x) { return (x / thrust::abs(x)); });
+			[]__host__ __device__(const comThr & x) { return (x / thrust::abs(x)); });
 	}
 
-	gridSize_com = (data_num + blockSize_com - 1) / blockSize_com;
-	dim3 grid_com2(gridSize_com);
-	dim3 block_com2(blockSize_com);
-	Compensate_Phase <<<grid_com2, block_com2 >>> (d_data, d_phi, d_data, echo_num, range_num);
-
+	dim3 grid_com2((data_num + block.x - 1) / block.x);
+	diagMulMat << <grid_com2, block >> > (d_phi, d_data, d_data, range_num, data_num);
+	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * free space
+	checkCudaErrors(cudaFree(d_data_abs));
+	checkCudaErrors(cudaFree(d_max_val));
+	checkCudaErrors(cudaFree(d_preComData));
 	checkCudaErrors(cudaFree(Image1));
 	checkCudaErrors(cudaFree(newData));
 	checkCudaErrors(cudaFree(d_tempData));
+
 	checkCudaErrors(cufftDestroy(plan));
 }
 
 
 void dopplerTracking2(cuComplex* d_preComData, cuComplex* d_data, const int& echo_num, const int& range_num, thrust::device_vector<comThr>& phaseC, int isNeedCompensation)
 {
-	// step 1: generate key array
-	thrust::device_vector<int>oriKey(echo_num - 1);
-	thrust::sequence(thrust::device, oriKey.begin(), oriKey.end(), 1);
-	thrust::device_vector<int> d_counts(echo_num - 1, range_num);
-	thrust::device_vector<int> keyVec((echo_num - 1) * range_num);    // 1,...,1,...,...,255,...,255
+	int data_num = echo_num * range_num;
+	int data_num_less_echo = (echo_num - 1) * range_num;
 
-	// expand keys according to counts
-	expand(d_counts.begin(), d_counts.end(),
-		oriKey.begin(),
-		keyVec.begin());
+	dim3 block(256);
+	dim3 grid((data_num + block.x - 1) / block.x);
+	dim3 grid_less_echo((data_num_less_echo + block.x - 1) / block.x);
 
+	// * Applying conjugate multiplication on two successive raws
+	cuComplex* d_mul_res = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_mul_res, sizeof(cuComplex)* data_num_less_echo));
+	elementwiseMultiplyConjA << <grid_less_echo, block >> > (d_data, d_data + range_num, d_mul_res, data_num_less_echo);
+	checkCudaErrors(cudaDeviceSynchronize());
 
-	// step 2: complex number multiple
-	thrust::device_ptr<comThr> thr_d_data = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_data));
-
-	thrust::device_vector<comThr> mulRes((echo_num - 1) * range_num);
-
-	thrust::transform(thrust::device, thr_d_data, thr_d_data + (echo_num - 1) * range_num, thr_d_data + range_num, mulRes.begin(), \
-		[]__host__ __device__(const comThr & x, const comThr & y) { return thrust::conj(x) * y; });
-
-	// step 3: reduce 255 blocks
-	thrust::device_vector<comThr> xw((echo_num - 1));
-
-	thrust::reduce_by_key(thrust::device, keyVec.begin(), keyVec.end(), mulRes.begin(), thrust::make_discard_iterator(), xw.begin());
+	// * Sum mulRes in raws
+	thrust::device_vector<comThr> xw(echo_num - 1);
+	cuComplex* d_xw = reinterpret_cast<cuComplex*>(thrust::raw_pointer_cast(xw.data()));
+	sumRows << <echo_num, 1024, 1024 * sizeof(cuComplex) >> > (d_mul_res, d_xw, echo_num - 1, range_num);
+	checkCudaErrors(cudaDeviceSynchronize());
 
 	// step 4: get angle
 	thrust::device_vector<float> angle(echo_num - 1);
 	thrust::transform(thrust::device, xw.begin(), xw.end(), angle.begin(), \
-		[]__host__ __device__(const comThr& x) { return thrust::arg((x / thrust::abs(x))); });
+		[]__host__ __device__(const comThr & x) { return thrust::arg((x / thrust::abs(x))); });
 	thrust::inclusive_scan(thrust::device, angle.begin(), angle.end(), angle.begin());
 
 	// step 5: get compensation phase
@@ -404,15 +387,8 @@ void dopplerTracking2(cuComplex* d_preComData, cuComplex* d_data, const int& ech
 	if (isNeedCompensation) {
 		cuComplex* d_phaseC = reinterpret_cast<cuComplex*>(thrust::raw_pointer_cast(phaseC.data()));
 
-		int blockSize = 64;
-		//int minGridSize;
-		int gridSize;
-		//cudaOccupancyMaxPotentialBlockSize(&minGridSize, &blockSize, Compensate_Phase, 0, 0);
-		gridSize = (range_num * echo_num + blockSize - 1) / blockSize;
-		dim3 grid(gridSize);
-		dim3 block(blockSize);
-
-		Compensate_Phase <<<grid, block >>> (d_preComData, d_phaseC, d_data, echo_num, range_num);
+		diagMulMat << <grid, block >> > (d_phaseC, d_data, d_preComData, range_num, data_num);
+		checkCudaErrors(cudaDeviceSynchronize());
 	}
 }
 

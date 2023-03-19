@@ -1,6 +1,30 @@
 ﻿#include "common.cuh"
 
 
+CUDAHandle::CUDAHandle(const int& echo_num, const int& range_num)
+{
+	this->echo_num = echo_num;
+	this->range_num = range_num;
+
+	checkCudaErrors(cublasCreate(&handle));
+
+	checkCudaErrors(cufftPlan1d(&plan_all_echo_c2c, range_num, CUFFT_C2C, echo_num));
+	checkCudaErrors(cufftPlan1d(&plan_one_echo_c2c, range_num, CUFFT_C2C, 1));
+	checkCudaErrors(cufftPlan1d(&plan_one_echo_r2c, range_num, CUFFT_R2C, 1));
+	checkCudaErrors(cufftPlan1d(&plan_one_echo_c2r, range_num, CUFFT_C2R, 1));
+}
+
+CUDAHandle::~CUDAHandle()
+{
+	checkCudaErrors(cublasDestroy(handle));
+
+	checkCudaErrors(cufftDestroy(plan_all_echo_c2c));
+	checkCudaErrors(cufftDestroy(plan_one_echo_c2c));
+	checkCudaErrors(cufftDestroy(plan_one_echo_r2c));
+	checkCudaErrors(cufftDestroy(plan_one_echo_c2r));
+}
+
+
 void vecMulvec(cublasHandle_t handle, cuComplex* result_matrix, thrust::device_vector<comThr>& vec1, thrust::device_vector<comThr>& vec2, const cuComplex& alpha)
 {
 	int vec1_len = static_cast<int>(vec1.size());
@@ -213,35 +237,181 @@ __global__ void genHammingVec(float* hamming, int len)
 //}
 
 
-void getMaxInColumns(thrust::device_vector<float>& c, thrust::device_vector<float>& maxval, thrust::device_vector<int>& maxidx, int row, int col)
+//void getMaxInColumns(thrust::device_vector<float>& c, thrust::device_vector<float>& maxval, thrust::device_vector<int>& maxidx, int row, int col)
+//{
+//	thrust::reduce_by_key(
+//		thrust::make_transform_iterator(
+//			thrust::make_counting_iterator((int)0),
+//			thrust::placeholders::_1 / row),
+//		thrust::make_transform_iterator(
+//			thrust::make_counting_iterator((int)0),
+//			thrust::placeholders::_1 / row) + row * col,
+//		thrust::make_zip_iterator(
+//			thrust::make_tuple(
+//				thrust::make_permutation_iterator(
+//					c.begin(),
+//					thrust::make_transform_iterator(
+//						thrust::make_counting_iterator((int)0), (thrust::placeholders::_1 % row) * col + thrust::placeholders::_1 / row)),
+//				thrust::make_transform_iterator(
+//					thrust::make_counting_iterator((int)0), thrust::placeholders::_1 % row))),
+//		thrust::make_discard_iterator(),
+//		thrust::make_zip_iterator(
+//			thrust::make_tuple(
+//				maxval.begin(),
+//				maxidx.begin())),
+//		thrust::equal_to<int>(),
+//		thrust::maximum<thrust::tuple<float, int> >()
+//	);
+//}
+
+
+__global__ void maxCols(float* d_data, float* d_max_clos, int rows, int cols)
 {
-	thrust::reduce_by_key(
-		thrust::make_transform_iterator(
-			thrust::make_counting_iterator((int)0),
-			thrust::placeholders::_1 / row),
-		thrust::make_transform_iterator(
-			thrust::make_counting_iterator((int)0),
-			thrust::placeholders::_1 / row) + row * col,
-		thrust::make_zip_iterator(
-			thrust::make_tuple(
-				thrust::make_permutation_iterator(
-					c.begin(),
-					thrust::make_transform_iterator(
-						thrust::make_counting_iterator((int)0), (thrust::placeholders::_1 % row) * col + thrust::placeholders::_1 / row)),
-				thrust::make_transform_iterator(
-					thrust::make_counting_iterator((int)0), thrust::placeholders::_1 % row))),
-		thrust::make_discard_iterator(),
-		thrust::make_zip_iterator(
-			thrust::make_tuple(
-				maxval.begin(),
-				maxidx.begin())),
-		thrust::equal_to<int>(),
-		thrust::maximum<thrust::tuple<float, int> >()
-	);
+	int bid = blockIdx.x;
+	int tid = threadIdx.x;
+
+	float t_max_val = FLT_MIN;
+	int t_max_idx = 0;
+
+	for (int i = tid; i < rows; i += blockDim.x) {
+		if (t_max_val < d_data[i * cols + bid]) {
+			t_max_idx = i * cols + bid;
+		}
+	}
+
+	// Perform a reduction within the block to compute the final sum
+	extern __shared__ int sdata_max_cols[];
+	sdata_max_cols[tid] = t_max_idx;
+	__syncthreads();
+
+	for (int s = (blockDim.x >> 1); s > 0; s >>= 1) {
+		if (tid < s) {
+			if (d_data[sdata_max_cols[tid]] < d_data[sdata_max_cols[tid + s]]) {
+				sdata_max_cols[tid] = sdata_max_cols[tid + s];
+			}
+		}
+		__syncthreads();
+	}
+
+	if (tid == 0) {
+		d_max_clos[bid] = d_data[sdata_max_cols[0]];
+	}
 }
 
 
-void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& range_num_cut, cublasHandle_t handle)
+//template <typename InputIterator1, typename InputIterator2, typename OutputIterator>
+//OutputIterator expand(InputIterator1 first1, InputIterator1 last1, InputIterator2 first2, OutputIterator output)
+//{
+//	typedef typename thrust::iterator_difference<InputIterator1>::type difference_type;
+//
+//	difference_type input_size = thrust::distance(first1, last1);
+//	difference_type output_size = thrust::reduce(first1, last1);
+//
+//	// scan the counts to obtain output offsets for each input element
+//	thrust::device_vector<difference_type> output_offsets(input_size, 0);
+//	thrust::exclusive_scan(first1, last1, output_offsets.begin());
+//
+//	// scatter the nonzero counts into their corresponding output positions
+//	thrust::device_vector<difference_type> output_indices(output_size, 0);
+//	thrust::scatter_if(thrust::counting_iterator<difference_type>(0), thrust::counting_iterator<difference_type>(input_size), output_offsets.begin(), first1, output_indices.begin());
+//
+//	// compute max-scan over the output indices, filling in the holes
+//	thrust::inclusive_scan(output_indices.begin(), output_indices.end(), output_indices.begin(), thrust::maximum<difference_type>());
+//
+//	// gather input values according to index array (output = first2[output_indices])
+//	OutputIterator output_end = output; thrust::advance(output_end, output_size);
+//	thrust::gather(output_indices.begin(), output_indices.end(), first2, output);
+//
+//	// return output + output_size
+//	thrust::advance(output, output_size);
+//	return output;
+//}
+//
+//
+//void sumRows_thr(cuComplex* d_data, cuComplex* d_sum_rows, const int& row, const int& col)
+//{
+//	if (row == 1) {
+//		if (d_data != d_sum_rows) {
+//			checkCudaErrors(cudaMemcpy(d_sum_rows, d_data, sizeof(cuComplex) * col, cudaMemcpyDeviceToDevice));
+//		}
+//		return;
+//	}
+//
+//	thrust::device_ptr<comThr> thr_d_data = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_data));
+//	thrust::device_ptr<comThr> thr_d_sum_rows = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_sum_rows));
+//
+//	// * Generating keys for reduce_by_key
+//	thrust::device_vector<int> oriKey(row);
+//	thrust::sequence(thrust::device, oriKey.begin(), oriKey.end(), 1);
+//
+//	thrust::device_vector<int> d_counts(row, col);
+//	thrust::device_vector<int> keyVec(row * col);  // 1,...,1,2,...,2,...,row,...,row
+//
+//	// * Expand keys according to counts
+//	expand(d_counts.begin(), d_counts.end(), oriKey.begin(), keyVec.begin());
+//
+//	// * Sum mulRes in raws
+//	thrust::reduce_by_key(thrust::device, keyVec.begin(), keyVec.end(), thr_d_data, thrust::make_discard_iterator(), thr_d_sum_rows);
+//}
+
+
+__global__ void sumCols(float* d_data, float* d_sum_clos, int rows, int cols)
+{
+	int bid = blockIdx.x;
+	int tid = threadIdx.x;
+
+	float t_sum = 0.0f;
+	for (int i = tid; i < rows; i += blockDim.x) {
+		t_sum += d_data[i * cols + bid];
+	}
+
+	// Perform a reduction within the block to compute the final sum
+	extern __shared__ float sdata[];
+	sdata[tid] = t_sum;
+	__syncthreads();
+
+	for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+		if (tid < s) {
+			sdata[tid] += sdata[tid + s];
+		}
+		__syncthreads();
+	}
+
+	if (tid == 0) {
+		d_sum_clos[bid] = sdata[0];
+	}
+}
+
+
+__global__ void sumRows(cuComplex* d_data, cuComplex* d_sum_rows, int rows, int cols)
+{
+	int bid = blockIdx.x;
+	int tid = threadIdx.x;
+
+	cuComplex t_sum = make_cuComplex(0.0f, 0.0f);
+	for (int i = tid; i < cols; i += blockDim.x) {
+		t_sum = cuCaddf(t_sum, d_data[bid * cols + i]);
+	}
+
+	// Perform a reduction within the block to compute the final sum
+	extern __shared__ cuComplex s_data[];
+	s_data[tid] = t_sum;
+	__syncthreads();
+
+	for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+		if (tid < s) {
+			s_data[tid] = cuCaddf(s_data[tid], s_data[tid + s]);
+		}
+		__syncthreads();
+	}
+
+	if (tid == 0) {
+		d_sum_rows[bid] = s_data[0];
+	}
+}
+
+
+void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& range_num_cut, const CUDAHandle& handles)
 {
 	int data_num_cut = paras.echo_num * range_num_cut;
 
@@ -254,7 +424,7 @@ void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& rang
 	// max(abs(d_data(1,:)))
 	int range_abs_max_idx = 0;
 	cuComplex range_abs_max_val = make_cuComplex(0.0f, 0.0f);
-	getMax(handle, d_data, paras.range_num, &range_abs_max_idx, &range_abs_max_val);
+	getMax(handles.handle, d_data, paras.range_num, &range_abs_max_idx, &range_abs_max_val);
 
 	int offset_l = range_abs_max_idx - range_num_cut / 2;
 	int offset_r = range_abs_max_idx + range_num_cut / 2;
@@ -303,9 +473,9 @@ __global__ void setNumInArray(int* arrays, int* index, int set_num, int num_inde
 }
 
 
-void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const int& echo_num, const int& range_num, float* hamming, cufftHandle plan_all_echo_c2c)
+void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, float* hamming, const RadarParameters& paras, const CUDAHandle& handles)
 {
-	int data_num = echo_num * range_num;
+	int data_num = paras.echo_num * paras.range_num;
 	int swap_len = data_num / 2;
 
 	dim3 block(256);  // block size
@@ -313,11 +483,11 @@ void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const int& echo_num, const in
 	dim3 grid_swap((swap_len + block.x - 1) / block.x);
 
 	// d_data = d_data .* repmat(hamming, echo_num, 1)
-	elementwiseMultiplyRep << <grid, block >> > (hamming, d_data, d_data, range_num, data_num);
+	elementwiseMultiplyRep << <grid, block >> > (hamming, d_data, d_data, paras.range_num, data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// d_hrrp = fftshift(fft(d_data))
-	checkCudaErrors(cufftExecC2C(plan_all_echo_c2c, d_data, d_hrrp, CUFFT_FORWARD));
+	checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c, d_data, d_hrrp, CUFFT_FORWARD));
 	swap_range<cuComplex> << <grid_swap, block >> > (d_hrrp, d_hrrp + swap_len, swap_len);  // fftshift
 	checkCudaErrors(cudaDeviceSynchronize());
 }
