@@ -22,7 +22,7 @@ void dopplerTracking(cuComplex* d_data, const int& echo_num, const int& range_nu
 	sumRows << <echo_num, 1024, 1024 * sizeof(cuComplex) >> > (d_mul_res, d_xw, echo_num - 1, range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// * Getting compensation andle
+	// * Getting compensation angle
 	thrust::device_vector<float> angle(echo_num - 1);
 	thrust::transform(thrust::device, xw.begin(), xw.end(), angle.begin(), \
 		[]__host__ __device__(const comThr & x) { return thrust::arg((x / thrust::abs(x))); });
@@ -42,7 +42,7 @@ void dopplerTracking(cuComplex* d_data, const int& echo_num, const int& range_nu
 	diagMulMat << <grid, block >> > (d_phaseC, d_data, d_data, range_num, data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// * Free Malocated Space
+	// * Free Allocated Space
 	checkCudaErrors(cudaFree(d_mul_res));
 }
 
@@ -111,7 +111,7 @@ void rangeVariantPhaseComp(cuComplex* d_data, float* h_azimuth, float* h_pitch, 
 	checkCudaErrors(cudaMalloc((void**)&comp_mat, sizeof(float) * data_num));
 	checkCudaErrors(cudaMemset(comp_mat, 0, sizeof(float) * data_num));
 
-	// 08-05-2020 修改
+	// 08-05-2020 modified
 	vecMulvec(handles.handle, comp_mat, range, theta, 1.0f);
 	thrust::device_ptr<float> thr_comp_mat = thrust::device_pointer_cast(comp_mat);
 	thrust::device_ptr<comThr> thr_data = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_data));
@@ -275,7 +275,7 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	Select_Rangebins << <grid_, block_ >> > (newData, d_data, select_bin, echo_num, range_num, num_unit2);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// * doppler phase tracking
+	// * Doppler phase tracking
 	isNeedCompensation = 0;
 	thrust::device_vector<comThr>Phase_select(echo_num);
 	dopplerTracking2(newData, newData, echo_num, num_unit2, Phase_select, isNeedCompensation);

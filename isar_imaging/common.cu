@@ -11,7 +11,9 @@ CUDAHandle::CUDAHandle(const int& echo_num, const int& range_num)
 	checkCudaErrors(cufftPlan1d(&plan_all_echo_c2c, range_num, CUFFT_C2C, echo_num));
 	checkCudaErrors(cufftPlan1d(&plan_one_echo_c2c, range_num, CUFFT_C2C, 1));
 	checkCudaErrors(cufftPlan1d(&plan_one_echo_r2c, range_num, CUFFT_R2C, 1));
+	checkCudaErrors(cufftPlan1d(&plan_all_echo_r2c, range_num, CUFFT_R2C, echo_num));
 	checkCudaErrors(cufftPlan1d(&plan_one_echo_c2r, range_num, CUFFT_C2R, 1));
+	checkCudaErrors(cufftPlan1d(&plan_all_echo_c2r, range_num, CUFFT_C2R, echo_num));
 }
 
 CUDAHandle::~CUDAHandle()
@@ -21,7 +23,9 @@ CUDAHandle::~CUDAHandle()
 	checkCudaErrors(cufftDestroy(plan_all_echo_c2c));
 	checkCudaErrors(cufftDestroy(plan_one_echo_c2c));
 	checkCudaErrors(cufftDestroy(plan_one_echo_r2c));
+	checkCudaErrors(cufftDestroy(plan_all_echo_r2c));
 	checkCudaErrors(cufftDestroy(plan_one_echo_c2r));
+	checkCudaErrors(cufftDestroy(plan_all_echo_c2r));
 }
 
 
@@ -93,6 +97,16 @@ __global__ void elementwiseAbs(cuComplex* a, float* abs, int len)
 		abs[tid] = cuCabsf(a[tid]);
 	}
 }
+
+
+__global__ void elementwiseMean(cuComplex* a, cuComplex* b, cuComplex* c, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		c[tid] = make_cuComplex((cuCrealf(a[tid]) + cuCrealf(b[tid])) / 2, (cuCimagf(a[tid]) + cuCimagf(b[tid])) / 2);
+	}
+}
+
 
 __global__ void elementwiseMultiply(cuComplex* a, cuComplex* b, cuComplex* c, int len)
 {
@@ -269,32 +283,26 @@ __global__ void maxCols(float* d_data, float* d_max_clos, int rows, int cols)
 {
 	int bid = blockIdx.x;
 	int tid = threadIdx.x;
+	int nTPB = blockDim.x;
 
-	float t_max_val = FLT_MIN;
-	int t_max_idx = 0;
-
-	for (int i = tid; i < rows; i += blockDim.x) {
-		if (t_max_val < d_data[i * cols + bid]) {
-			t_max_idx = i * cols + bid;
-		}
-	}
-
-	// Perform a reduction within the block to compute the final sum
-	extern __shared__ int sdata_max_cols[];
-	sdata_max_cols[tid] = t_max_idx;
+	// [todo] Possible optimization:  halve the number of threads and size of shared memory assigned for each block.
+	// Perform a reduction within the block to compute the final maximum value.
+	// sdata_max_cols_idx store the index of the maximum value in each block.
+	extern __shared__ int sdata_max_cols_idx[];
+	sdata_max_cols_idx[tid] = tid * cols + bid;
 	__syncthreads();
 
-	for (int s = (blockDim.x >> 1); s > 0; s >>= 1) {
+	for (int s = (nTPB >> 1); s > 0; s >>= 1) {
 		if (tid < s) {
-			if (d_data[sdata_max_cols[tid]] < d_data[sdata_max_cols[tid + s]]) {
-				sdata_max_cols[tid] = sdata_max_cols[tid + s];
+			if (d_data[sdata_max_cols_idx[tid]] < d_data[sdata_max_cols_idx[tid + s]]) {
+				sdata_max_cols_idx[tid] = sdata_max_cols_idx[tid + s];
 			}
 		}
 		__syncthreads();
 	}
 
 	if (tid == 0) {
-		d_max_clos[bid] = d_data[sdata_max_cols[0]];
+		d_max_clos[bid] = d_data[sdata_max_cols_idx[0]];
 	}
 }
 
@@ -359,18 +367,15 @@ __global__ void sumCols(float* d_data, float* d_sum_clos, int rows, int cols)
 {
 	int bid = blockIdx.x;
 	int tid = threadIdx.x;
+	int nTPB = blockDim.x;
 
-	float t_sum = 0.0f;
-	for (int i = tid; i < rows; i += blockDim.x) {
-		t_sum += d_data[i * cols + bid];
-	}
-
+	// [todo] Possible optimization:  halve the number of threads and size of shared memory assigned for each block.
 	// Perform a reduction within the block to compute the final sum
 	extern __shared__ float sdata[];
-	sdata[tid] = t_sum;
+	sdata[tid] = d_data[tid * cols + bid];
 	__syncthreads();
 
-	for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+	for (int s = (nTPB >> 1); s > 0; s >>= 1) {
 		if (tid < s) {
 			sdata[tid] += sdata[tid + s];
 		}
@@ -429,7 +434,7 @@ void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& rang
 	int offset_l = range_abs_max_idx - range_num_cut / 2;
 	int offset_r = range_abs_max_idx + range_num_cut / 2;
 	if (offset_l < 0 || offset_r >= paras.range_num) {
-		std::cout << "[Warnning] Invalid range_num_cut! Probably too long.\n" << std::endl;
+		std::cout << "[Warning] Invalid range_num_cut! Probably too long.\n" << std::endl;
 		system("pause");
 		exit(EXIT_FAILURE);
 	}
@@ -545,19 +550,19 @@ int turnAngleLine(std::vector<float>* turnAngle, const std::vector<float>& azimu
 			float pitching1 = pitching[currentPulseNum - stride];
 			float pitching2 = pitching[currentPulseNum];
 			float turnAngleSingle = getTurnAngle(azimuth1, pitching1, azimuth2, pitching2);
-			turnAngle->at(currentPulseNum) = turnAngle->at(currentPulseNum - stride) + turnAngleSingle;  // 单帧夹角迭加
+			turnAngle->at(currentPulseNum) = turnAngle->at(currentPulseNum - stride) + turnAngleSingle;  // angle superposition
 		}
 		int turnAngleSize = static_cast<int>(turnAngle->size());
 		for (int i = 0; i < turnAngleSize; ++i) {
 			turnAngle->at(i) = std::abs(turnAngle->at(i));
 		}
 		if (N >= 21) {
-			std::vector<int> x = [=]() { 
-				std::vector<int> v; 
+			std::vector<int> x = [=]() {
+				std::vector<int> v;
 				for (int i = 0; (i + stride) <= N; i += stride) {
 					v.push_back(i);
 				}
-				return v; 
+				return v;
 			}();  // todo: range generate
 			std::vector<float> Y = [=]() {
 				std::vector<float> v;
@@ -595,7 +600,8 @@ float interpolate(const std::vector<int>& xData, const std::vector<float>& yData
 	int i = 0;  // find left end of interval for interpolation
 	if (x >= xData[size - 2]) {  // special case: beyond right end
 		i = size - 2;
-	} else {
+	}
+	else {
 		while (x > xData[i + 1]) i++;
 	}
 	float xL = static_cast<float>(xData[i]);
@@ -622,9 +628,8 @@ int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FL
 		// TurnAngleOut = [];
 		// DataNOut = [];
 		// return;
-		// % warndlg('滑窗超出数据范围，请重新调整滑窗位置', '注意');
 	}
-	
+
 	// 	DataW_FileSn = WindowHead:CQ:WindowEnd;
 	*dataWFileSn = [=]() {  // todo: range generate
 		std::vector<int> v;
@@ -637,7 +642,7 @@ int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FL
 	// TurnAngleOut = abs(TurnAngle(WindowHead:CQ:WindowEnd));
 	turnAngleOut->assign(dataWFileSn->size(), 0);
 	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), turnAngleOut->begin(), [=](int x) {return std::abs(turnAngle[x]); });
-	
+
 	// DataNOut = DataN(WindowHead:CQ:WindowEnd, : );
 	dataNOut->assign(dataWFileSn->size(), std::vector<float>(8, 0));
 	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin(), [=](int x) {return dataN[x]; });
@@ -691,13 +696,13 @@ int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* fra
 	uint32_t temp[36]{};
 	ifs.read((char*)&temp, sizeof(temp));
 
-	*frameLength = static_cast<int>(temp[4] * 4);  // 帧长度(包含帧头、正交解调数据，单位Byte)
-	paras->fc = static_cast<long long>(temp[12] * 1e6);  // 信号载频
-	paras->band_width = static_cast<long long>(temp[13] * 1e6);  // 信号带宽
-	//float PRI = temp[14] / 1e6;  // 脉冲重复周期
+	*frameLength = static_cast<int>(temp[4] * 4);  // length of frame, including frame head and orthogonal demodulation data.(unit: Byte)
+	paras->fc = static_cast<long long>(temp[12] * 1e6);  // signal carrier frequency
+	paras->band_width = static_cast<long long>(temp[13] * 1e6);  // signal band width
+	//float PRI = temp[14] / 1e6;  // pulse repetition interval
 	//float PRF = 1 / PRI;
-	paras->Tp = static_cast<float>(temp[15] / 1e6);  // 发射脉宽
-	paras->Fs = static_cast<int>((temp[17] % static_cast<int>(std::pow(2, 16))) * 1e6);  // 采样频率
+	paras->Tp = static_cast<float>(temp[15] / 1e6);  // pulse width
+	paras->Fs = static_cast<int>((temp[17] % static_cast<int>(std::pow(2, 16))) * 1e6);  // sampling frequency
 	*frameNum = static_cast<int>(fs::file_size(fs::path(m_filePath))) / *frameLength;
 
 	ifs.close();
@@ -816,7 +821,7 @@ int ioOperation::getKuDataStretch(vec1D_COM_FLOAT* dataW, std::vector<int>* fram
 		std::cout << "Cannot open file " << m_filePath << " !\n";
 		return EXIT_FAILURE;
 	}
-	
+
 	int dataWFileSnSize = static_cast<int>(dataWFileSn.size());  // row of dataW
 	for (int i = 0; i < dataWFileSnSize; ++i) {
 		//fseek(fid1, StretchIndex(DataW_FileSn(i), 1), 'bof');

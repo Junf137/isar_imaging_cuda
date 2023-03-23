@@ -1,7 +1,17 @@
 ﻿#ifndef COMMON_H_
 #define COMMON_H_
 
-//#define DATA_WRITE_BACK
+
+//#define DATA_WRITE_BACK_DATAW
+//#define DATA_WRITE_BACK_HPC
+//#define DATA_WRITE_BACK_HRRP
+#define DATA_WRITE_BACK_RA
+#define DATA_WRITE_BACK_FINAL
+
+
+#define MIN(a, b) (a<b) ? a : b
+#define MAX(a, b) (a>b) ? a : b
+
 
 // cuda runtime
 #include "cuda_runtime.h"
@@ -11,6 +21,7 @@
 #include <cublas_api.h>
 #include <cufft.h>
 #include "helper_cuda.h"
+
 
 // thrust lib
 #include <thrust/device_ptr.h>
@@ -25,6 +36,7 @@
 #include <thrust/iterator/discard_iterator.h>
 #include <thrust/gather.h>
 
+
 // stl lib
 #include <complex>
 #include <unordered_map>
@@ -36,6 +48,7 @@
 #include <iomanip>
 #include <filesystem>
 
+
 typedef std::vector<std::vector<float>> vec2D_FLOAT;
 typedef std::vector<std::vector<int>> vec2D_INT;
 typedef std::vector<std::complex<float>> vec1D_COM_FLOAT;
@@ -46,6 +59,7 @@ typedef thrust::complex<float> comThr;
 constexpr const char* DIR_PATH = "F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\";
 constexpr auto PI_h = 3.14159265358979f;
 constexpr auto LIGHT_SPEED_h = 300000000;
+
 
 namespace fs = std::filesystem;
 
@@ -74,7 +88,9 @@ public:
 	cufftHandle plan_all_echo_c2c;
 	cufftHandle plan_one_echo_c2c;
 	cufftHandle plan_one_echo_r2c;  // implicitly forward
+	cufftHandle plan_all_echo_r2c;  // implicitly forward
 	cufftHandle plan_one_echo_c2r;  // implicitly inverse
+	cufftHandle plan_all_echo_c2r;  // implicitly inverse
 
 
 public:
@@ -87,26 +103,26 @@ public:
 
 
 /// <summary>
-/// result_matrix = alpah * vec1 * vec2.' + result_matrix;
+/// result_matrix = alpha * vec1 * vec2.' + result_matrix;
 /// for cuComplex number.
 /// </summary>
 /// <param name="handle"> cublas handle </param>
 /// <param name="result_matrix"> multiply result matrix of size m * n (store in column major) </param>
 /// <param name="vec1">  vector of length m </param>
-/// <param name="vec2"> vecto of length n </param>
+/// <param name="vec2"> vector of length n </param>
 /// <param name="alpha"> alpha can be in host or device memory </param>
 void vecMulvec(cublasHandle_t handle, cuComplex* result_matrix, thrust::device_vector<comThr>& vec1, thrust::device_vector<comThr>& vec2, const cuComplex& alpha);  // todo: deprecated
 void vecMulvec(cublasHandle_t handle, cuComplex* d_vec1, int len1, cuComplex* d_vec2, int len2, cuComplex* d_res_matrix, const cuComplex& alpha);
 
 
 /// <summary>
-/// result_matrix = alpah * vec1 * vec2.' + result_matrix;
+/// result_matrix = alpha * vec1 * vec2.' + result_matrix;
 /// for float number.
 /// </summary>
 /// <param name="handle"> cublas handle </param>
 /// <param name="result_matrix"> multiply result matrix of size m * n (store in column major) </param>
 /// <param name="vec1">  vector of length m </param>
-/// <param name="vec2"> vecto of length n </param>
+/// <param name="vec2"> vector of length n </param>
 /// <param name="alpha"> alpha can be in host or device memory </param>
 void vecMulvec(cublasHandle_t handle, float* result_matrix, thrust::device_vector<float>& vec1, thrust::device_vector<float>& vec2, const float& alpha);  // todo: deprecated
 void vecMulvec(cublasHandle_t handle, float* d_vec1, int len1, float* d_vec2, int len2, float* d_res_matrix, const float& alpha);
@@ -154,8 +170,11 @@ void getMin(cublasHandle_t handle, float* d_vec, int len, int* min_idx, float* m
 __global__ void elementwiseAbs(cuComplex* a, float* abs, int len);
 
 
+//__global__ void elementwiseMean(cuComplex* a, cuComplex* b, cuComplex* c, int len);
+
+
 /// <summary>
-/// Perform element-wise vector multiplcation.
+/// Perform element-wise vector multiplication.
 /// c = a .* b
 /// </summary>
 /// <param name="a"></param>
@@ -167,7 +186,7 @@ __global__ void elementwiseMultiply(cuComplex* a, cuComplex* b, cuComplex* c, in
 
 
 /// <summary>
-/// Perform element-wise vector multiplcation.
+/// Perform element-wise vector multiplication.
 /// c = conj(a) .* b
 /// </summary>
 /// <param name="a"></param>
@@ -191,7 +210,7 @@ __global__ void elementwiseMultiplyRep(cuComplex* a, cuComplex* b, cuComplex* c,
 
 
 /// <summary>
-/// Perform element-wise vector multiplcation.
+/// Perform element-wise vector multiplication.
 /// c = a .* b
 /// </summary>
 /// <param name="a"></param>
@@ -203,7 +222,7 @@ __global__ void elementwiseMultiply(float* a, float* b, float* c, int len);
 
 
 /// <summary>
-/// Perform element-wise vector multiplcation.
+/// Perform element-wise vector multiplication.
 /// c = a .* b
 /// </summary>
 /// <param name="a"></param>
@@ -227,7 +246,7 @@ __global__ void elementwiseMultiplyRep(float* a, cuComplex* b, cuComplex* c, int
 
 
 /// <summary>
-/// Perform element-wise vector multiplcation.
+/// Perform element-wise vector multiplication.
 /// c = a .* b
 /// </summary>
 /// <param name="a"></param>
@@ -277,7 +296,7 @@ __global__ void swap_range(T* a, T* b, int len)  // todo: separate definition an
 
 //template <typename T>
 ///// <summary>
-///// refference: https://stackoverflow.com/questions/27925979/thrustmax-element-slow-in-comparison-cublasisamax-more-efficient-implementat
+///// Reference: https://stackoverflow.com/questions/27925979/thrustmax-element-slow-in-comparison-cublasisamax-more-efficient-implementat
 ///// </summary>
 ///// <param name="data"></param>
 ///// <param name="dsize"></param>
@@ -288,7 +307,7 @@ __global__ void swap_range(T* a, T* b, int len)  // todo: separate definition an
 
 ///// <summary>
 ///// get maximum value of every column
-///// Refference:  https://stackoverflow.com/questions/17698969/determining-the-least-element-and-its-position-in-each-matrix-column-with-cuda-t
+///// Reference:  https://stackoverflow.com/questions/17698969/determining-the-least-element-and-its-position-in-each-matrix-column-with-cuda-t
 ///// </summary>
 ///// <param name="c"> data set, column is not coalescing </param>
 ///// <param name="maxval"> vector to store maximum value </param>
@@ -301,9 +320,12 @@ __global__ void swap_range(T* a, T* b, int len)  // todo: separate definition an
 /// <summary>
 /// Getting the max element of every single column in matrix d_data.
 /// Each block is responsible for the calculation of a single column.
+/// Since d_data is arranged by row-major in device memory and window length(echo_num) used in ISAR imaging is generally bounded inside {256, 512}.
+/// Therefore element per column won't be so much bigger than number of thread per block like the situation in sumRows.
+/// In this case, we can discard the partial maximum calculation in each thread and directly perform reduction of shared memory in block-scale.
 /// Kernel configuration requirements:
-/// (block number == cols)
-/// (shared memory size == thread per block)
+/// (1) block_number == cols
+/// (2) shared_memory_number == thread_per_block == rows
 /// </summary>
 /// <param name="d_data"></param>
 /// <param name="d_max_clos"></param>
@@ -315,7 +337,7 @@ __global__ void maxCols(float* d_data, float* d_max_clos, int rows, int cols);
 
 ///// <summary>
 ///// Expanding index.
-///// Expanding the unmber of every element in vector starting from first2 to the corresponding value in vector starting from frist1 and ending at end1.
+///// Expanding the number of every element in vector starting from first2 to the corresponding value in vector starting from frist1 and ending at end1.
 ///// first {2,2,2}. second {1,2,3}. output {1,1,2,2,3,3}.
 ///// </summary>
 ///// <typeparam name="InputIterator1"></typeparam>
@@ -343,9 +365,12 @@ __global__ void maxCols(float* d_data, float* d_max_clos, int rows, int cols);
 /// <summary>
 /// Calculate summation of every column. Equal to sum(d_data, 1) in matlab.
 /// Each block is responsible for summing a single column.
+/// Since d_data is arranged by row-major in device memory and window length(echo_num) used in ISAR imaging is generally bounded inside {256, 512}.
+/// Therefore element per column won't be so much bigger than number of thread per block like the situation in sumRows.
+/// In this case, we can discard the partial sum calculation in each thread and directly perform reduction of shared memory in block-scale.
 /// Kernel configuration requirements:
-/// (block number == cols)
-/// (shared memory size == thread per block)
+/// (1) block_number == cols
+/// (2) shared_memory_number == thread_per_block == rows
 /// </summary>
 /// <param name="d_data"></param>
 /// <param name="rows"></param>
@@ -358,9 +383,11 @@ __global__ void sumCols(float* d_data, float* sum_clos, int rows, int cols);
 /// <summary>
 /// Calculate summation of every rows. Equal to sum(d_data, 2) in matlab.
 /// Each block is responsible for summing a single row.
+/// Since d_data is arranged by row-major in device memory and element per row is usually much bigger than number of thread per block.
+/// Therefore calculating partial sum in each thread before performing reduction on shared memory in block-scale is necessary.
 /// Kernel configuration requirements:
-/// (block number == rows)
-/// (shared memory size == thread per block)
+/// (1) block_number == rows
+/// (2) shared_memory_number == thread_per_block == {256, 512, 1024}
 /// </summary>
 /// <param name="d_data"></param>
 /// <param name="rows"></param>
@@ -381,21 +408,21 @@ void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& rang
 
 
 /// <summary>
-/// 实现距离像的径向截取
+/// Cutting range profile in range dimension along with echo dimension
 /// </summary>
-/// <param name="d_in"> 原始距离像序列(按回波依次存储, 下同) </param>
-/// <param name="d_out"> 截取后的距离像序列 </param>
-/// <param name="data_size"> 截取后的距离像序列元素个数(行数*列数) </param>
-/// <param name="offset"> 每个回波截取的起始点 </param>
-/// <param name="num_elements"> 截取后, 每个回波的点数 </param>
-/// <param name="num_ori_elements"> 截取前, 每个回波的点数 </param>
+/// <param name="d_in"> d_data before interception </param>
+/// <param name="d_out"> d_data after interception </param>
+/// <param name="data_size"> size of d_data after interception  </param>
+/// <param name="offset"> starting point of each echo interception </param>
+/// <param name="num_elements"> point number of every echo after interception </param>
+/// <param name="num_ori_elements"> point number of every echo before interception </param>
 /// <returns></returns>
 __global__ void cutRangeProfileHelper(cuComplex* d_in, cuComplex* d_out, const int data_size,
 	const int offset, const int num_elements, const int num_ori_elements);
 
 
 /// <summary>
-/// 实现 2^nextpow2(N). MATLAB里是只返回指数, 这里一并求出了2的幂
+/// Calculating 2^nextpow2(N).
 /// </summary>
 /// <param name="N"></param>
 /// <returns></returns>
@@ -405,10 +432,10 @@ int nextPow2(int N);
 /// <summary>
 /// 将array中位于index处的元素置为set_num
 /// </summary>
-/// <param name="arrays"> 数据序列 </param>
-/// <param name="index"> 要被替换的元素索引 </param>
-/// <param name="set_num"> 替换值 </param>
-/// <param name="num_index"> 元素个数 </param>
+/// <param name="arrays"> data array </param>
+/// <param name="index"> index of element to be replaces </param>
+/// <param name="set_num"> replace value </param>
+/// <param name="num_index"> number of element to be replaces </param>
 /// <returns></returns>
 __global__ void setNumInArray(int* arrays, int* index, int set_num, int num_index);
 
@@ -426,7 +453,7 @@ void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, float* hamming, const RadarPa
 
 
 /// <summary>
-/// 计算目标旋转角度, 计算两个雷达观测方向的单位矢量
+/// Calculate target rotation angle, calculate unit vector of two radar's observation direction
 /// </summary>
 /// <param name="azimuth1"></param>
 /// <param name="pitching1"></param>
@@ -437,12 +464,12 @@ float getTurnAngle(const float& azimuth1, const float& pitching1, const float& a
 
 
 /// <summary>
-/// 计算转角变化曲线.
+/// Calculating target rotation angle curve.
 /// 先找出跟踪丢失点, 对每一段估计, 然后再加起来.
 /// </summary>
-/// <param name="turnAngle"> 目标转动角度曲线 </param>
-/// <param name="azimuth"> 方位角 </param>
-/// <param name="pitching"> 俯仰角 </param>
+/// <param name="turnAngle"> target rotation angle curve </param>
+/// <param name="azimuth">  </param>
+/// <param name="pitching">  </param>
 /// <returns></returns>
 int turnAngleLine(std::vector<float>* turnAngle, const std::vector<float>& azimuth, const std::vector<float>& pitching);
 
@@ -450,7 +477,7 @@ int turnAngleLine(std::vector<float>* turnAngle, const std::vector<float>& azimu
 /// <summary>
 /// Returns interpolated value at x from parallel arrays ( xData, yData )
 /// Assumes that xData has at least two elements, is sorted and is strictly monotonic increasing
-/// boolean argument extrapolate determines behaviour beyond ends of array (if needed)
+/// boolean argument extrapolate determines behavior beyond ends of array (if needed)
 /// </summary>
 /// <param name="xData"></param>
 /// <param name="yData"></param>
@@ -472,7 +499,7 @@ int nonUniformSamplingFun();
 /* ioOperation Class */
 
 /// <summary>
-/// Read radar echo signal into CPU mmemory.
+/// Read radar echo signal into CPU memory.
 /// </summary>
 class ioOperation
 {

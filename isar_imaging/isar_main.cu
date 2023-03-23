@@ -7,13 +7,13 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	int devID = 0;  // pick the device with highest Gflops/s. (single GPU mode)
 	checkCudaErrors(cudaSetDevice(devID));
 
-	// * CUDA Compability Information
+	// * CUDA Capability Information
 	//int major = 0, minor = 0;
 	//checkCudaErrors(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, devID));
 	//checkCudaErrors(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, devID));
 	//printf("GPU Device %d: \"%s\" with compute capability %d.%d\n\n", devID, _ConvertSMVer2ArchName(major, minor), major, minor);
 
-	
+
 	/******************************
 	* GPU Memory Initialization
 	******************************/
@@ -27,12 +27,11 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	// * Overall cuBlas and cuFFT handle
 	CUDAHandle handles(paras.echo_num, paras.range_num);
 
-	// * Overall kernal function configuration
+	// * Overall kernel function configuration
 	dim3 block(256);  // block size
-	dim3 grid((data_num + block.x - 1) / block.x);  // grid size
-	dim3 grid_range((paras.range_num + block.x - 1) / block.x);
+	dim3 grid_one_echo((paras.range_num + block.x - 1) / block.x);  // grid size
 
-	// * GPU memory mallocation
+	// * GPU memory allocation
 	cuComplex* d_data = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * data_num));
 	checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(cuComplex) * data_num, cudaMemcpyHostToDevice));  // data (host -> device)
@@ -43,9 +42,9 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	std::cout << "************************************\n\n";
 
 
-#ifdef DATA_WRITE_BACK
+#ifdef DATA_WRITE_BACK_DATAW
 	ioOperation::dataWriteBack(std::string(DIR_PATH) + "dataW.dat", d_data, data_num);
-#endif // DATA_WRITE_BACK
+#endif // DATA_WRITE_BACK_DATAW
 
 
 	/******************************
@@ -66,7 +65,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 
 		// * Starting HPC
 		highSpeedCompensation(d_data, d_velocity, paras, handles);
-		
+
 		auto tEnd_HPC = std::chrono::high_resolution_clock::now();
 
 		delete[] h_velocity;
@@ -80,9 +79,9 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	}
 
 
-#ifdef DATA_WRITE_BACK
+#ifdef DATA_WRITE_BACK_HPC
 	ioOperation::dataWriteBack(std::string(DIR_PATH) + "hpc.dat", d_data, data_num);
-#endif // DATA_WRITE_BACK
+#endif // DATA_WRITE_BACK_HPC
 
 
 	/******************
@@ -93,7 +92,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	// * Generate Hamming Window
 	float* hamming = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&hamming, sizeof(float) * paras.range_num));
-	genHammingVec << <grid_range, block >> > (hamming, paras.range_num);
+	genHammingVec << <grid_one_echo, block >> > (hamming, paras.range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * HRRP - High Resolution Range Profile.
@@ -102,7 +101,8 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 
 	auto tStart_HRRP = std::chrono::high_resolution_clock::now();
 
-	// d_hrrp = fftshift(fft(hamming ,* d_data))
+	// d_hrrp = fftshift(fft(hamming .* d_data))
+	// d_data = d_data .* repmat(hamming, echo_num, 1)
 	getHRRP(d_hrrp, d_data, hamming, paras, handles);
 
 	auto tEnd_HRRP = std::chrono::high_resolution_clock::now();
@@ -112,14 +112,19 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	std::cout << "************************************\n\n";
 
 
+#ifdef DATA_WRITE_BACK_HRRP
+	ioOperation::dataWriteBack(std::string(DIR_PATH) + "hrrp.dat", d_hrrp, data_num);
+#endif // DATA_WRITE_BACK_HRRP
+
+
 	/******************
 	 * Range Alignment and HRRP Centering
 	 ******************/
-	std::cout << "---* Starting Range alignment *---\n";
+	std::cout << "---* Starting Range Alignment *---\n";
 	auto tStart_RA = std::chrono::high_resolution_clock::now();
 
 	// * Range Alignment
-	rangeAlignment(d_data, hamming, paras, handles);
+	rangeAlignmentParallel(d_data, hamming, paras, handles);
 
 	auto tEnd_RA_1 = std::chrono::high_resolution_clock::now();
 
@@ -130,8 +135,13 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	auto tEnd_RA_2 = std::chrono::high_resolution_clock::now();
 	std::cout << "[Time consumption(range alignment)] " << std::chrono::duration_cast<std::chrono::milliseconds>(tEnd_RA_1 - tStart_RA).count() << "ms\n";
 	std::cout << "[Time consumption(centering HRRP)] " << std::chrono::duration_cast<std::chrono::milliseconds>(tEnd_RA_2 - tEnd_RA_1).count() << "ms\n";
-	std::cout << "---* Range alignment Over *---\n";
+	std::cout << "---* Range Alignment Over *---\n";
 	std::cout << "************************************\n\n";
+
+
+#ifdef DATA_WRITE_BACK_RA
+	ioOperation::dataWriteBack(std::string(DIR_PATH) + "ra.dat", d_data, data_num);
+#endif // DATA_WRITE_BACK_RA
 
 
 	/******************
@@ -153,11 +163,11 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 
 	/**********************
 	 * Phase Compensation
-	 * 多普勒跟踪 -> 距离向空变的相位补偿 -> 快速最小熵 (Doppler_Tracking -> RangeVariantPhaseComp -> Fast_Entropy)
+	 * Doppler_Tracking -> RangeVariantPhaseComp -> Fast_Entropy
 	 **********************/
 	std::cout << "---* Starting Phase Compensation *---\n";
 
-	// * Retrieving Azimith and Pitch Data
+	// * Retrieving Azimuth and Pitch Data
 	float* h_azimuth = new float[paras.echo_num];
 	float* h_pitch = new float[paras.echo_num];
 	std::transform(dataNOut.cbegin(), dataNOut.cend(), h_azimuth, [](std::vector<float> v) {return v[2]; });
@@ -167,7 +177,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 
 	// * Doppler Tracking
 	dopplerTracking(d_data, paras.echo_num, paras.range_num);
-	
+
 	auto tPC_2 = std::chrono::high_resolution_clock::now();
 
 	// * Range Variant Phase Compensation
@@ -195,11 +205,14 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& datastyle, const 
 	/**********************
 	* Final Data Write Back
 	**********************/
-	ioOperation::dataWriteBack(std::string(DIR_PATH) + "isar_image.dat", d_data, data_num);
+#ifdef DATA_WRITE_BACK_FINAL
+	ioOperation::dataWriteBack(std::string(DIR_PATH) + "final.dat", d_data, data_num);
+#endif // DATA_WRITE_BACK_FINAL
+
 
 
 	/**********************
-	* Free Allocated Memory & Destory Pointer
+	* Free Allocated Memory & Destroy Pointer
 	**********************/
 	checkCudaErrors(cudaFree(d_data));
 	checkCudaErrors(cudaFree(hamming));

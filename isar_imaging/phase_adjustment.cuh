@@ -5,7 +5,7 @@
 
 
 /// <summary>
-/// Doppler tracking. Achieving Coarse phase caliberation.
+/// Doppler tracking. Achieving Coarse phase calibration.
 /// </summary>
 /// <param name="d_data"></param>
 /// <param name="echo_num"></param>
@@ -27,7 +27,7 @@ __global__ void diagMulMat(cuComplex* d_diag, cuComplex* d_data, cuComplex* d_re
 
 
 /// <summary>
-/// 补偿大带宽下，因大转角引起的随距离空变的二次相位误差
+/// 补偿大带宽下, 因大转角引起的随距离空变的二次相位误差
 /// </summary>
 /// <param name="d_data"></param>
 /// <param name="paras"></param>
@@ -48,20 +48,30 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 
 
 /// <summary>
+/// </summary>
+/// <param name="newData">  </param>
+/// <param name="d_Data">  </param>
+/// <param name="select_bin">  </param>
+/// <param name="NumEcho">  </param>
+/// <param name="NumRange">  </param>
+/// <param name="num_unit2">  </param>
+/// <returns></returns>
+
+/// <summary>
 /// 最小熵快速自聚焦中提取距离单元重建回波. 参考：邱晓辉《ISAR成像快速最小熵相位补偿方法》，电子与信息学报，2004
 /// </summary>
 /// <param name="newData"> 提取距离单元后的回波 </param>
-/// <param name="d_Data"> 距离像序列(方位*距离，列主序） </param>
-/// <param name="select_bin"> 选出距离单元的索引序列 </param>
-/// <param name="NumEcho"> 回波数 </param>
-/// <param name="NumRange"> 距离向采样点数 </param>
-/// <param name="num_unit2"> 选出的距离单元个数 </param>
+/// <param name="d_data"> 距离像序列(方位*距离，列主序） </param>
+/// <param name="select_bin"> index of selected range data </param>
+/// <param name="echo_num">  </param>
+/// <param name="range_num"></param>
+/// <param name="num_unit2"> number of selected range data </param>
 /// <returns></returns>
-__global__ void Select_Rangebins(cuComplex* newData, cuComplex* d_Data, int* select_bin, int NumEcho, int NumRange, int num_unit2);
+__global__ void Select_Rangebins(cuComplex* newData, cuComplex* d_data, int* select_bin, int echo_num, int range_num, int num_unit2);
 
 
 /// <summary>
-/// realize Doppler centroid tracking to autofocus
+/// realize Doppler centroid tracking to auto-focus
 /// </summary>
 /// <param name="d_preComData"></param>
 /// <param name="d_Data"> Range profile(slow-time * fast-time, row major) </param>

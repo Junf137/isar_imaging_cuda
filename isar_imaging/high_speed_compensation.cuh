@@ -5,7 +5,7 @@
 
 /// <summary>
 /// High Speed Motion Compensation.
-/// compensation pahse: fai = 2*pi*K*2*v_tmp/c*tk.^2
+/// compensation phase: fai = 2*pi*K*2*v_tmp/c*tk.^2
 /// compensation function : exp(1j * fai)
 /// </summary>
 /// <param name="d_data"></param>

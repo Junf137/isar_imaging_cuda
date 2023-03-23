@@ -6,9 +6,9 @@ int main()
     ioOperation* io = new ioOperation(DIR_PATH, 1);
 
     /******************************
-    * pre processing data
+    * pre-processing data
     ******************************/
-    std::cout << "---* Starting Pre Processing *---\n";
+    std::cout << "---* Starting Pre-Processing *---\n";
     auto tStart_PreProcessing = std::chrono::high_resolution_clock::now();
 
     RadarParameters paras{};

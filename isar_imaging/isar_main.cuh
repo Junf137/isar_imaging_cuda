@@ -6,23 +6,16 @@
 #include "range_alignment.cuh"
 #include "phase_adjustment.cuh"
 
-/*
-* HRRPData       一维距离像
-* alignData      包络对齐后距离像
-* compData       相位校正后距离像
-* ISARImageData  ISAR二维像
-*/
 // function[HRRPData, alignData, compData, ISARImageData] = ISAR_RD_Imaging_Main_Ku(Datastyle, DataW, DataNOut, RadarParameters, optionAligment, optionAPhase, IfHighspeedMotionComp, IfRMTRC)
 /// <summary>
-/// 距离 - 多普勒成像算法主函数
-/// 根据选择的包络对齐和相位校正方法 进行RD成像
+/// 
 /// </summary>
 /// <param name="Datastyle"></param>
-/// <param name="DataW"> 雷达宽带数据，直采数据时，为雷达一维距离像 </param>
+/// <param name="DataW"> 雷达宽带数据, 直采数据时, 为雷达一维距离像 </param>
 /// <param name="DataNOut"></param>
 /// <param name="paras"></param>
-/// <param name="optionAligment"> 包络对齐方法 </param>
-/// <param name="optionAPhase"> 相位校正方法 </param>
+/// <param name="optionAligment"> range alignment method </param>
+/// <param name="optionAPhase"> phase adjustment method </param>
 /// <param name="ifHPC"></param>
 /// <param name="ifMTRC"></param>
 /// <returns></returns>
