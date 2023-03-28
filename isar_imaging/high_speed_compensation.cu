@@ -2,10 +2,8 @@
 
 void highSpeedCompensation(cuComplex* d_data, float* d_velocity, const RadarParameters& paras, const CUDAHandle& handles)
 {
-	int data_num = paras.echo_num * paras.range_num;
-
 	dim3 block(256);  // block size
-	dim3 grid((data_num + block.x - 1) / block.x);  // grid size
+	dim3 grid((paras.data_num + block.x - 1) / block.x);  // grid size
 	dim3 grid_one_echo((paras.range_num + block.x - 1) / block.x);  // grid size
 
 	// fast time vector
@@ -20,17 +18,17 @@ void highSpeedCompensation(cuComplex* d_data, float* d_velocity, const RadarPara
 
 	// phase = coefficient * v * tk.^2
 	float* d_phase = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_phase, sizeof(float) * data_num));  // new allocated space are set to zero
+	checkCudaErrors(cudaMalloc((void**)&d_phase, sizeof(float) * paras.data_num));  // new allocated space are set to zero
 	checkCudaErrors(cublasSger(handles.handle, paras.range_num, paras.echo_num, &coefficient, d_tk_2, 1, d_velocity, 1, d_phase, paras.range_num));
 
 	// phi = exp(1j*phase)
 	cuComplex* d_phi = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_phi, sizeof(cuComplex)* data_num));
-	expJ << <grid, block >> > (d_phase, d_phi, data_num);
+	checkCudaErrors(cudaMalloc((void**)&d_phi, sizeof(cuComplex)* paras.data_num));
+	expJ << <grid, block >> > (d_phase, d_phi, paras.data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// compensation
-	elementwiseMultiply << <grid, block >> > (d_data, d_phi, d_data, data_num);
+	elementwiseMultiply << <grid, block >> > (d_data, d_phi, d_data, paras.data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// free gpu allocated space

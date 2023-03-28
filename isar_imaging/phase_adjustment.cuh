@@ -7,10 +7,13 @@
 /// <summary>
 /// Doppler tracking. Achieving Coarse phase calibration.
 /// </summary>
+/// <param name="d_data_comp"></param>
+/// <param name="d_phase"></param>
 /// <param name="d_data"></param>
 /// <param name="echo_num"></param>
 /// <param name="range_num"></param>
-void dopplerTracking(cuComplex* d_data, const int& echo_num, const int& range_num);
+/// <param name="if_compensation"></param>
+void dopplerTracking(cuComplex* d_data_comp, cuComplex* d_phase, cuComplex* d_data, const int& echo_num, const int& range_num, const bool& if_compensation);
 
 
 /// <summary>
@@ -27,7 +30,7 @@ __global__ void diagMulMat(cuComplex* d_diag, cuComplex* d_data, cuComplex* d_re
 
 
 /// <summary>
-/// 补偿大带宽下, 因大转角引起的随距离空变的二次相位误差
+/// compensating the second-order phase error caused by large angle of rotation in large bandwidth
 /// </summary>
 /// <param name="d_data"></param>
 /// <param name="paras"></param>
@@ -38,47 +41,30 @@ void rangeVariantPhaseComp(cuComplex* d_data, float* h_azimuth, float* h_pitch, 
 
 
 /// <summary>
-/// 最小熵快速自聚焦. 参考：邱晓辉《ISAR成像快速最小熵相位补偿方法》，电子与信息学报，2004
+/// fast minimum entropy auto-focus. (Reference: 邱晓辉《ISAR成像快速最小熵相位补偿方法》，电子与信息学报，2004)
 /// </summary>
 /// <param name="d_data"></param>
 /// <param name="echo_num"></param>
 /// <param name="range_num"></param>
 /// <param name="handle"></param>
-void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, const CUDAHandle& handles);
+void fastEntropy(cuComplex*& d_data, const int& echo_num, const int& range_num, const CUDAHandle& handles);
 
 
 /// <summary>
+/// Rebuild echo after extracting range bins of selected index in fast entropy auto-focus. (Reference: 邱晓辉《ISAR成像快速最小熵相位补偿方法》，电子与信息学报，2004)
+/// Each block is responsible for extracting a single row, and each thread is responsible for extracting a single element inside a row.
+/// Kernel configuration requirements:
+/// (1) block_number == echo_num
+/// (2) thread_per_block == num_unit2
 /// </summary>
-/// <param name="newData">  </param>
-/// <param name="d_Data">  </param>
-/// <param name="select_bin">  </param>
-/// <param name="NumEcho">  </param>
-/// <param name="NumRange">  </param>
-/// <param name="num_unit2">  </param>
-/// <returns></returns>
-
-/// <summary>
-/// 最小熵快速自聚焦中提取距离单元重建回波. 参考：邱晓辉《ISAR成像快速最小熵相位补偿方法》，电子与信息学报，2004
-/// </summary>
-/// <param name="newData"> 提取距离单元后的回波 </param>
-/// <param name="d_data"> 距离像序列(方位*距离，列主序） </param>
+/// <param name="d_new_data"> new data of extracted range bins </param>
+/// <param name="d_data"></param>
 /// <param name="select_bin"> index of selected range data </param>
-/// <param name="echo_num">  </param>
+/// <param name="echo_num"></param>
 /// <param name="range_num"></param>
 /// <param name="num_unit2"> number of selected range data </param>
 /// <returns></returns>
-__global__ void Select_Rangebins(cuComplex* newData, cuComplex* d_data, int* select_bin, int echo_num, int range_num, int num_unit2);
+__global__ void selectRangeBins(cuComplex* d_new_data, cuComplex* d_data, int* select_bin, int echo_num, int range_num, int num_unit2);
 
-
-/// <summary>
-/// realize Doppler centroid tracking to auto-focus
-/// </summary>
-/// <param name="d_preComData"></param>
-/// <param name="d_Data"> Range profile(slow-time * fast-time, row major) </param>
-/// <param name="NumEcho"></param>
-/// <param name="NumRange"></param>
-/// <param name="phaseC"></param>
-/// <param name="isNeedCompensation"></param>
-void dopplerTracking2(cuComplex* d_preComData, cuComplex* d_data, const int& echo_num, const int& range_num, thrust::device_vector<comThr>& phaseC, int isNeedCompensation);
 
 #endif // !PHASE_ADJUSTMENT_H_

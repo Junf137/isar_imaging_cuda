@@ -59,7 +59,8 @@ typedef thrust::complex<float> comThr;
 constexpr const char* DIR_PATH = "F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\";
 constexpr auto PI_h = 3.14159265358979f;
 constexpr auto LIGHT_SPEED_h = 300000000;
-
+constexpr auto RANGE_NUM_CUT = 512;
+constexpr auto FAST_ENTROPY_ITERATION_NUM = 120;
 
 namespace fs = std::filesystem;
 
@@ -68,6 +69,7 @@ struct RadarParameters
 {
 	int echo_num;
 	int range_num;
+	int data_num;
 	long long band_width;
 	long long fc;
 	float Tp;
@@ -76,22 +78,19 @@ struct RadarParameters
 
 
 class CUDAHandle {
-private:
-	int echo_num;
-	int range_num;
-
 public:
 	// * Overall cuBlas handle
 	cublasHandle_t handle;
 
 	// * Overall cuFFT plan
 	cufftHandle plan_all_echo_c2c;
-	cufftHandle plan_one_echo_c2c;
-	cufftHandle plan_one_echo_r2c;  // implicitly forward
+	//cufftHandle plan_one_echo_c2c;  // used in range alignment iteration version
+	//cufftHandle plan_one_echo_r2c;  // implicitly forward
 	cufftHandle plan_all_echo_r2c;  // implicitly forward
-	cufftHandle plan_one_echo_c2r;  // implicitly inverse
+	//cufftHandle plan_one_echo_c2r;  // implicitly inverse
 	cufftHandle plan_all_echo_c2r;  // implicitly inverse
 
+	cufftHandle plan_all_range_c2c;
 
 public:
 
@@ -222,6 +221,18 @@ __global__ void elementwiseMultiply(float* a, float* b, float* c, int len);
 
 
 /// <summary>
+/// c = b ./ repmat(a, (len_b/len_a), 1)
+/// </summary>
+/// <param name="a"> len_a </param>
+/// <param name="b"> len_b </param>
+/// <param name="c"> len_c == len_b </param>
+/// <param name="len_a"></param>
+/// <param name="len_b"></param>
+/// <returns></returns>
+__global__ void elementwiseDivRep(float* a, float* b, float* c, int len_a, int len_b);
+
+
+/// <summary>
 /// Perform element-wise vector multiplication.
 /// c = a .* b
 /// </summary>
@@ -337,7 +348,7 @@ __global__ void maxCols(float* d_data, float* d_max_clos, int rows, int cols);
 
 ///// <summary>
 ///// Expanding index.
-///// Expanding the number of every element in vector starting from first2 to the corresponding value in vector starting from frist1 and ending at end1.
+///// Expanding the number of every element in vector starting from first2 to the corresponding value in vector starting from first1 and ending at end1.
 ///// first {2,2,2}. second {1,2,3}. output {1,1,2,2,3,3}.
 ///// </summary>
 ///// <typeparam name="InputIterator1"></typeparam>
@@ -423,6 +434,7 @@ __global__ void cutRangeProfileHelper(cuComplex* d_in, cuComplex* d_out, const i
 
 /// <summary>
 /// Calculating 2^nextpow2(N).
+/// power of 2 closest to N.
 /// </summary>
 /// <param name="N"></param>
 /// <returns></returns>
@@ -437,7 +449,16 @@ int nextPow2(int N);
 /// <param name="set_num"> replace value </param>
 /// <param name="num_index"> number of element to be replaces </param>
 /// <returns></returns>
-__global__ void setNumInArray(int* arrays, int* index, int set_num, int num_index);
+
+/// <summary>
+/// setting d_data's element in position of d_index to value val.
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="d_index"></param>
+/// <param name="val"></param>
+/// <param name="d_index_len"></param>
+/// <returns></returns>
+__global__ void setNumInArray(int* d_data, int* d_index, int val, int d_index_len);
 
 
 /// <summary>
@@ -465,7 +486,7 @@ float getTurnAngle(const float& azimuth1, const float& pitching1, const float& a
 
 /// <summary>
 /// Calculating target rotation angle curve.
-/// 先找出跟踪丢失点, 对每一段估计, 然后再加起来.
+/// finding lost point, then estimate turn angle for each segment, finally add them together.
 /// </summary>
 /// <param name="turnAngle"> target rotation angle curve </param>
 /// <param name="azimuth">  </param>
@@ -487,9 +508,9 @@ int turnAngleLine(std::vector<float>* turnAngle, const std::vector<float>& azimu
 float interpolate(const std::vector<int>& xData, const std::vector<float>& yData, const int& x, const bool& extrapolate);
 
 
-// [flag_data_end DataW_FileSn DataNOut TurnAngleOut] = UniformitySampling(DataN, TurnAngle, CQ, WindowHead, WindowLength)
+// [flag_data_end DataW_FileSn DataNOut TurnAngleOut] = UniformitySampling(DataN, TurnAngle, sampling_stride, WindowHead, WindowLength)
 int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FLOAT* dataNOut, std::vector<float>* turnAngleOut, \
-	const vec2D_FLOAT& dataN, const std::vector<float>& turnAngle, const int& CQ, const int& windowHead, const int& windowLength);
+	const vec2D_FLOAT& dataN, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len);
 
 
 //function [flag_data_end DataW_FileSn DataNOut TurnAngleOut] = NonUniformitySampling(DataN, RadarParameters, TurnAngle, start, M)
@@ -522,10 +543,10 @@ public:
 	/// Retrieving basic radar echo signal information.
 	/// </summary>
 	/// <param name="paras"> radar echo signal parameters </param>
-	/// <param name="frameLength"> single frame length </param>
-	/// <param name="frameNum"> total frame number</param>
+	/// <param name="frame_len"> single frame length </param>
+	/// <param name="frame_num"> total frame number</param>
 	/// <returns></returns>
-	int getSystemParasFirstFileStretch(RadarParameters* paras, int* frameLength, int* frameNum);
+	int getSystemParasFirstFileStretch(RadarParameters* paras, int* frame_len, int* frame_num);
 
 	/// <summary>
 	/// 
@@ -535,11 +556,11 @@ public:
 	/// <param name="turnAngle"></param>
 	/// <param name="pulse_num_all"></param>
 	/// <param name="paras"></param>
-	/// <param name="frameLength"></param>
-	/// <param name="frameNum"></param>
+	/// <param name="frame_len"></param>
+	/// <param name="frame_num"></param>
 	/// <returns></returns>
 	int readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, int* pulse_num_all, \
-		const RadarParameters& paras, const int& frameLength, const int& frameNum);
+		const RadarParameters& paras, const int& frame_len, const int& frame_num);
 
 	/// <summary>
 	/// 
@@ -551,13 +572,13 @@ public:
 	/// <param name="dataN"></param>
 	/// <param name="paras"></param>
 	/// <param name="turnAngle"></param>
-	/// <param name="CQ"></param>
-	/// <param name="windowHead"></param>
-	/// <param name="windowLength"></param>
+	/// <param name="sampling_stride"></param>
+	/// <param name="window_head"></param>
+	/// <param name="window_len"></param>
 	/// <param name="nonUniformSampling"></param>
 	/// <returns></returns>
 	int getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FLOAT* dataNOut, std::vector<float>* turnAngleOut, \
-		const vec2D_FLOAT& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& CQ, const int& windowHead, const int& windowLength, const bool& nonUniformSampling);
+		const vec2D_FLOAT& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len, const bool& nonUniformSampling);
 
 	/// <summary>
 	/// 

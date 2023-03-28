@@ -4,14 +4,14 @@
 #include "common.cuh"
 
 
-/// <summary>
-/// Range alignment using linej algorithm
-/// </summary>
-/// <param name="d_data"></param>
-/// <param name="hamming_window"></param>
-/// <param name="paras"></param>
-/// <param name="handles"></param>
-void rangeAlignment(cuComplex* d_data, float* hamming_window, const RadarParameters& paras, const CUDAHandle& handles);
+///// <summary>
+///// Range alignment using linej algorithm
+///// </summary>
+///// <param name="d_data"></param>
+///// <param name="hamming_window"></param>
+///// <param name="paras"></param>
+///// <param name="handles"></param>
+//void rangeAlignment(cuComplex* d_data, float* hamming_window, const RadarParameters& paras, const CUDAHandle& handles);
 
 
 /// <summary>
@@ -223,14 +223,13 @@ void circshiftFreq(cuComplex* d_data, int frag_len, float shift, int len, cublas
 
 
 /// <summary>
-/// GPU核函数，根据索引值附近ARP均值剔除野值. (reference: HRRPCenter.m)
-/// todo: optimization
+/// discarding outlier according to the average arp value around index of indices. (reference: HRRPCenter.m)
 /// </summary>
-/// <param name="d_arp_ave"> 待计算的ARP均值向量，长度为indices_length </param>
+/// <param name="d_arp_ave"> result vector of length indices_length </param>
 /// <param name="indices"> indices = find(ARP>low_threshold_gray) </param>
 /// <param name="arp"> average profile, length is the number of point in range dimension </param>
 /// <param name="indices_length"></param>
-/// <param name="WL"> 类似于CFAR中的参考单元 </param>
+/// <param name="WL"> windows length </param>
 /// <param name="range_num"></param>
 /// <returns></returns>
 __global__ void getARPMean(float* d_arp_ave, int* indices, float* arp, int indices_length, int WL, int range_num);

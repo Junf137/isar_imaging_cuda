@@ -3,17 +3,26 @@
 
 CUDAHandle::CUDAHandle(const int& echo_num, const int& range_num)
 {
-	this->echo_num = echo_num;
-	this->range_num = range_num;
-
 	checkCudaErrors(cublasCreate(&handle));
 
 	checkCudaErrors(cufftPlan1d(&plan_all_echo_c2c, range_num, CUFFT_C2C, echo_num));
-	checkCudaErrors(cufftPlan1d(&plan_one_echo_c2c, range_num, CUFFT_C2C, 1));
-	checkCudaErrors(cufftPlan1d(&plan_one_echo_r2c, range_num, CUFFT_R2C, 1));
+	//checkCudaErrors(cufftPlan1d(&plan_one_echo_c2c, range_num, CUFFT_C2C, 1));
+	//checkCudaErrors(cufftPlan1d(&plan_one_echo_r2c, range_num, CUFFT_R2C, 1));
 	checkCudaErrors(cufftPlan1d(&plan_all_echo_r2c, range_num, CUFFT_R2C, echo_num));
-	checkCudaErrors(cufftPlan1d(&plan_one_echo_c2r, range_num, CUFFT_C2R, 1));
+	//checkCudaErrors(cufftPlan1d(&plan_one_echo_c2r, range_num, CUFFT_C2R, 1));
 	checkCudaErrors(cufftPlan1d(&plan_all_echo_c2r, range_num, CUFFT_C2R, echo_num));
+
+	// cuFFT data layout for applying fft to each column along first dimension
+	int batch_img = RANGE_NUM_CUT;
+	int rank_img = 1;
+	int n_img[1] = { echo_num };
+	int inembed_img[] = { echo_num };
+	int onembed_img[] = { echo_num };
+	int istride_img = RANGE_NUM_CUT;
+	int ostride_img = RANGE_NUM_CUT;
+	int idist_img = 1;
+	int odist_img = 1;
+	checkCudaErrors(cufftPlanMany(&plan_all_range_c2c, rank_img, n_img, inembed_img, istride_img, idist_img, onembed_img, ostride_img, odist_img, CUFFT_C2C, batch_img));
 }
 
 CUDAHandle::~CUDAHandle()
@@ -21,11 +30,12 @@ CUDAHandle::~CUDAHandle()
 	checkCudaErrors(cublasDestroy(handle));
 
 	checkCudaErrors(cufftDestroy(plan_all_echo_c2c));
-	checkCudaErrors(cufftDestroy(plan_one_echo_c2c));
-	checkCudaErrors(cufftDestroy(plan_one_echo_r2c));
+	//checkCudaErrors(cufftDestroy(plan_one_echo_c2c));
+	//checkCudaErrors(cufftDestroy(plan_one_echo_r2c));
 	checkCudaErrors(cufftDestroy(plan_all_echo_r2c));
-	checkCudaErrors(cufftDestroy(plan_one_echo_c2r));
+	//checkCudaErrors(cufftDestroy(plan_one_echo_c2r));
 	checkCudaErrors(cufftDestroy(plan_all_echo_c2r));
+	checkCudaErrors(cufftDestroy(plan_all_range_c2c));
 }
 
 
@@ -139,6 +149,24 @@ __global__ void elementwiseMultiply(float* a, float* b, float* c, int len)
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < len) {
 		c[tid] = a[tid] * b[tid];
+	}
+}
+
+
+/// <summary>
+/// c = b ./ repmat(a, (len_b/len_a), 1)
+/// </summary>
+/// <param name="a"> len_a </param>
+/// <param name="b"> len_b </param>
+/// <param name="c"> len_c == len_b </param>
+/// <param name="len_a"></param>
+/// <param name="len_b"></param>
+/// <returns></returns>
+__global__ void elementwiseDivRep(float* a, float* b, float* c, int len_a, int len_b)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len_b) {
+		c[tid] = b[tid] / a[tid % len_a];
 	}
 }
 
@@ -358,7 +386,7 @@ __global__ void maxCols(float* d_data, float* d_max_clos, int rows, int cols)
 //	// * Expand keys according to counts
 //	expand(d_counts.begin(), d_counts.end(), oriKey.begin(), keyVec.begin());
 //
-//	// * Sum mulRes in raws
+//	// * Sum mulRes in rows
 //	thrust::reduce_by_key(thrust::device, keyVec.begin(), keyVec.end(), thr_d_data, thrust::make_discard_iterator(), thr_d_sum_rows);
 //}
 
@@ -434,7 +462,7 @@ void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& rang
 	int offset_l = range_abs_max_idx - range_num_cut / 2;
 	int offset_r = range_abs_max_idx + range_num_cut / 2;
 	if (offset_l < 0 || offset_r >= paras.range_num) {
-		std::cout << "[Warning] Invalid range_num_cut! Probably too long.\n" << std::endl;
+		std::cout << "[cutRangeProfile/WARN] Invalid range_num_cut! Probably too long.\n" << std::endl;
 		system("pause");
 		exit(EXIT_FAILURE);
 	}
@@ -442,10 +470,11 @@ void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& rang
 	cutRangeProfileHelper << <grid, block >> > (d_data, d_data_cut, data_num_cut, offset_l, range_num_cut, paras.range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// point d_data to newly allocated memory block
+	// point d_data to newly allocated memory block, updating values of paras
 	checkCudaErrors(cudaFree(d_data));
 	d_data = d_data_cut;
 	paras.range_num = range_num_cut;
+	paras.data_num = paras.echo_num * paras.range_num;
 }
 
 
@@ -469,26 +498,25 @@ int nextPow2(int N) {
 }
 
 
-__global__ void setNumInArray(int* arrays, int* index, int set_num, int num_index)
+__global__ void setNumInArray(int* d_data, int* d_index, int val, int d_index_len)
 {
-	unsigned int tid = threadIdx.x + blockDim.x * blockIdx.x;
-	if (tid >= num_index)
-		return;
-	arrays[index[tid]] = set_num;
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < d_index_len) {
+		d_data[d_index[tid]] = val;
+	}
 }
 
 
 void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, float* hamming, const RadarParameters& paras, const CUDAHandle& handles)
 {
-	int data_num = paras.echo_num * paras.range_num;
-	int swap_len = data_num / 2;
+	int swap_len = paras.data_num / 2;
 
 	dim3 block(256);  // block size
-	dim3 grid((data_num + block.x - 1) / block.x);  // grid size
+	dim3 grid((paras.data_num + block.x - 1) / block.x);  // grid size
 	dim3 grid_swap((swap_len + block.x - 1) / block.x);
 
 	// d_data = d_data .* repmat(hamming, echo_num, 1)
-	elementwiseMultiplyRep << <grid, block >> > (hamming, d_data, d_data, paras.range_num, data_num);
+	elementwiseMultiplyRep << <grid, block >> > (hamming, d_data, d_data, paras.range_num, paras.data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// d_hrrp = fftshift(fft(d_data))
@@ -619,10 +647,10 @@ float interpolate(const std::vector<int>& xData, const std::vector<float>& yData
 }
 
 int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FLOAT* dataNOut, std::vector<float>* turnAngleOut, \
-	const vec2D_FLOAT& dataN, const std::vector<float>& turnAngle, const int& CQ, const int& windowHead, const int& windowLength)
+	const vec2D_FLOAT& dataN, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len)
 {
-	int windowEnd = windowHead + CQ * windowLength - 1;
-	if (windowEnd > turnAngle.size()) {
+	int window_end = window_head + sampling_stride * window_len - 1;
+	if (window_end > turnAngle.size()) {
 		// flag_data_end = 1;
 		// DataW_FileSn = [];
 		// TurnAngleOut = [];
@@ -630,20 +658,20 @@ int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FL
 		// return;
 	}
 
-	// 	DataW_FileSn = WindowHead:CQ:WindowEnd;
+	// 	DataW_FileSn = window_head:sampling_stride:window_end;
 	*dataWFileSn = [=]() {  // todo: range generate
 		std::vector<int> v;
-		for (int i = windowHead; (i + CQ) <= windowEnd + 1; ++i) {
+		for (int i = window_head; (i + sampling_stride) <= window_end + 1; ++i) {
 			v.push_back(i);
 		}
 		return v;
 	}();
 
-	// TurnAngleOut = abs(TurnAngle(WindowHead:CQ:WindowEnd));
+	// TurnAngleOut = abs(TurnAngle(window_head:sampling_stride:window_end));
 	turnAngleOut->assign(dataWFileSn->size(), 0);
 	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), turnAngleOut->begin(), [=](int x) {return std::abs(turnAngle[x]); });
 
-	// DataNOut = DataN(WindowHead:CQ:WindowEnd, : );
+	// DataNOut = DataN(window_head:sampling_stride:window_end, : );
 	dataNOut->assign(dataWFileSn->size(), std::vector<float>(8, 0));
 	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin(), [=](int x) {return dataN[x]; });
 	*flagDataEnd = 0;
@@ -682,7 +710,7 @@ ioOperation::ioOperation(const std::string& dirPath, const int& fileType) :
 ioOperation::~ioOperation() {}
 
 
-int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* frameLength, int* frameNum)
+int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* frame_len, int* frame_num)
 {
 	std::ifstream ifs;
 	ifs.open(m_filePath, std::ios_base::in | std::ios_base::binary);
@@ -696,14 +724,14 @@ int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* fra
 	uint32_t temp[36]{};
 	ifs.read((char*)&temp, sizeof(temp));
 
-	*frameLength = static_cast<int>(temp[4] * 4);  // length of frame, including frame head and orthogonal demodulation data.(unit: Byte)
+	*frame_len = static_cast<int>(temp[4] * 4);  // length of frame, including frame head and orthogonal demodulation data.(unit: Byte)
 	paras->fc = static_cast<long long>(temp[12] * 1e6);  // signal carrier frequency
 	paras->band_width = static_cast<long long>(temp[13] * 1e6);  // signal band width
 	//float PRI = temp[14] / 1e6;  // pulse repetition interval
 	//float PRF = 1 / PRI;
 	paras->Tp = static_cast<float>(temp[15] / 1e6);  // pulse width
 	paras->Fs = static_cast<int>((temp[17] % static_cast<int>(std::pow(2, 16))) * 1e6);  // sampling frequency
-	*frameNum = static_cast<int>(fs::file_size(fs::path(m_filePath))) / *frameLength;
+	*frame_num = static_cast<int>(fs::file_size(fs::path(m_filePath))) / *frame_len;
 
 	ifs.close();
 
@@ -711,7 +739,7 @@ int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* fra
 }
 
 int ioOperation::readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, int* pulse_num_all, \
-	const RadarParameters& paras, const int& frameLength, const int& frameNum)
+	const RadarParameters& paras, const int& frame_len, const int& frame_num)
 {
 	std::ifstream ifs;
 	ifs.open(m_filePath, std::ios_base::in | std::ios_base::binary);
@@ -720,19 +748,19 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIn
 		return EXIT_FAILURE;
 	}
 
-	dataN->assign(frameNum, std::vector<float>(8, 0));
-	stretchIndex->assign(frameNum, std::vector<int>(2, 0));
+	dataN->assign(frame_num, std::vector<float>(8, 0));
+	stretchIndex->assign(frame_num, std::vector<int>(2, 0));
 
-	std::vector<float> azimuthVec(frameNum, 0);
-	std::vector<float> pitchingVec(frameNum, 0);
+	std::vector<float> azimuthVec(frame_num, 0);
+	std::vector<float> pitchingVec(frame_num, 0);
 
 	float timeYear = 0;  // time info only need read once
 	float timeMonth = 0;
 	float timeDay = 0;
-	for (int i = 0; i < frameNum; i++) {
-		ifs.seekg(i * frameLength + 40, ifs.beg);
+	for (int i = 0; i < frame_num; i++) {
+		ifs.seekg(i * frame_len + 40, ifs.beg);
 
-		stretchIndex->at(i) = std::vector<int>({ i * frameLength + 256, frameLength });
+		stretchIndex->at(i) = std::vector<int>({ i * frame_len + 256, frame_len });
 
 		uint64_t sysTime = 0;
 		ifs.read((char*)&sysTime, sizeof(uint64_t));
@@ -778,7 +806,7 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIn
 		pitching = (pitching - (pitching > static_cast<float>(std::pow(2, 31)) ? static_cast<float>(std::pow(2, 32)) : 0)) * (360 / static_cast<float>(std::pow(2, 24)));
 		pitching += (pitching < 0 ? 360 : 0);
 
-		ifs.seekg(i * frameLength + 32, ifs.beg);
+		ifs.seekg(i * frame_len + 32, ifs.beg);
 
 		if (i == 0) {
 			ifs.read((char*)&timeYear, sizeof(uint16_t));
@@ -799,14 +827,14 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIn
 }
 
 int ioOperation::getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FLOAT* dataNOut, std::vector<float>* turnAngleOut, \
-	const vec2D_FLOAT& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& CQ, const int& windowHead, const int& windowLength, const bool& nonUniformSampling)
+	const vec2D_FLOAT& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len, const bool& nonUniformSampling)
 {
 
 	if (nonUniformSampling == true) {
 		nonUniformSamplingFun();
 	}
 	else {
-		uniformSamplingFun(flagDataEnd, dataWFileSn, dataNOut, turnAngleOut, dataN, turnAngle, CQ, windowHead, windowLength);
+		uniformSamplingFun(flagDataEnd, dataWFileSn, dataNOut, turnAngleOut, dataN, turnAngle, sampling_stride, window_head, window_len);
 	}
 
 	return EXIT_SUCCESS;
@@ -828,7 +856,7 @@ int ioOperation::getKuDataStretch(vec1D_COM_FLOAT* dataW, std::vector<int>* fram
 		ifs.seekg(stretchIndex[dataWFileSn[i]][0], ifs.beg);
 
 		//DataAD = fread(fid1, (StretchIndex(DataW_FileSn(i), 2) - 256) / 2, 'int16');
-		int dataADTempSize = (stretchIndex[dataWFileSn[i]][1] - 256) / 2;  // todo: frameLength???
+		int dataADTempSize = (stretchIndex[dataWFileSn[i]][1] - 256) / 2;  // todo: frame_len???
 		int16_t* dataADTemp = new int16_t[dataADTempSize];
 		ifs.read((char*)dataADTemp, dataADTempSize * sizeof(int16_t));
 
