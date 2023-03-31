@@ -57,18 +57,6 @@ __global__ void conjMulAveProfile(cuComplex* d_data, int rows, int cols, int str
 
 
 /// <summary>
-/// Kernel configuration requirement:
-/// (1) block_number == rows
-/// (2) thread_per_block == {256}
-/// </summary>
-/// <param name="d_data_l"></param>
-/// <param name="d_data_r"></param>
-/// <param name="len"></param>
-/// <returns></returns>
-__global__ void ifftshiftRows(float* d_data, int cols);
-
-
-/// <summary>
 /// Performing binomial fix.
 /// </summary>
 /// <param name="d_vec_corr"></param>

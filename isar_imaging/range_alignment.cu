@@ -161,7 +161,7 @@ void rangeAlignmentParallel(cuComplex* d_data, float* hamming_window, const Rada
 		// ifft
 		checkCudaErrors(cufftExecC2R(handles.plan_all_echo_c2r, d_ave_profile_fft, d_ave_profile));
 		// ifftshift in each rows
-		ifftshiftRows << <paras.echo_num, 256 >> > (d_ave_profile, paras.range_num);
+		ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_ave_profile, paras.range_num);
 		checkCudaErrors(cudaDeviceSynchronize());
 
 		// getting maximum position in each correlation vector
@@ -230,22 +230,6 @@ __global__ void conjMulAveProfile(cuComplex* d_data, int rows, int cols, int str
 	int idx_1 = (tid * stride * 2) * cols + bid;
 	int idx_2 = (tid * stride * 2 + stride) * cols + bid;
 	d_data[idx_1] = cuCmulf(d_data[idx_1], cuConjf(d_data[idx_2]));
-}
-
-
-__global__ void ifftshiftRows(float* d_data, int cols)
-{
-	int tid = threadIdx.x;
-	int bid = blockIdx.x;
-
-	int half_cols = cols / 2;
-
-	for (int i = tid; i < half_cols; i += blockDim.x) {
-		// swap
-		float temp = d_data[bid * cols + i];
-		d_data[bid * cols + i] = d_data[bid * cols + i + half_cols];
-		d_data[bid * cols + i + half_cols] = temp;
-	}
 }
 
 

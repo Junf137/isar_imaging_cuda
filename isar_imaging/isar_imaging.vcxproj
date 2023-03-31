@@ -14,6 +14,7 @@
     <CudaCompile Include="common.cu" />
     <CudaCompile Include="high_speed_compensation.cu" />
     <CudaCompile Include="isar_main.cu" />
+    <CudaCompile Include="mtrc.cu" />
     <CudaCompile Include="phase_adjustment.cu" />
     <CudaCompile Include="range_alignment.cu" />
   </ItemGroup>
@@ -23,6 +24,7 @@
     <ClInclude Include="helper_string.h" />
     <ClInclude Include="high_speed_compensation.cuh" />
     <ClInclude Include="isar_main.cuh" />
+    <ClInclude Include="mtrc.cuh" />
     <ClInclude Include="phase_adjustment.cuh" />
     <ClInclude Include="range_alignment.cuh" />
   </ItemGroup>

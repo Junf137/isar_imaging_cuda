@@ -5,14 +5,11 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const
 	/******************************
 	* Init GPU Device
 	******************************/
-	int devID = 0;  // pick the device with highest Gflops/s. (single GPU mode)
-	checkCudaErrors(cudaSetDevice(devID));
-
-	// * CUDA Capability Information
-	//int major = 0, minor = 0;
-	//checkCudaErrors(cudaDeviceGetAttribute(&major, cudaDevAttrComputeCapabilityMajor, devID));
-	//checkCudaErrors(cudaDeviceGetAttribute(&minor, cudaDevAttrComputeCapabilityMinor, devID));
-	//printf("GPU Device %d: \"%s\" with compute capability %d.%d\n\n", devID, _ConvertSMVer2ArchName(major, minor), major, minor);
+	// pick the device with highest Gflops/s. (single GPU mode)
+	int dev = findCudaDevice(0, static_cast<const char**>(nullptr));
+	if (dev == -1) {
+		return EXIT_FAILURE;
+	}
 
 
 	/******************************
@@ -186,11 +183,24 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const
 		std::cout << "---* Starting MTRC *---\n";
 		auto t_mtrc_1 = std::chrono::high_resolution_clock::now();
 
+		// * MTRC Correction
+		mtrc(d_data, paras, handles);
+
 		auto t_mtrc_2 = std::chrono::high_resolution_clock::now();
 		std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(t_mtrc_2 - t_mtrc_1).count() << "ms\n";
 		std::cout << "---* MTRC Over *---\n";
 		std::cout << "************************************\n\n";
 	}
+
+
+	/**********************
+	* Post Processing
+	**********************/
+	//// applying fft on each range along the second dimension
+	//checkCudaErrors(cufftExecC2C(handles.plan_all_range_c2c, d_data, d_data, CUFFT_FORWARD));
+	//// fftshift
+	//ifftshiftCols << <dim3(paras.range_num, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_data, paras.echo_num);
+	//checkCudaErrors(cudaDeviceSynchronize());
 
 
 	/**********************

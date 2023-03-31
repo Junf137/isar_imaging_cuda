@@ -2,8 +2,8 @@
 #define COMMON_H_
 
 
-//#define DATA_WRITE_BACK_DATAW
-//#define DATA_WRITE_BACK_HPC
+#define DATA_WRITE_BACK_DATAW
+#define DATA_WRITE_BACK_HPC
 //#define DATA_WRITE_BACK_HRRP
 #define DATA_WRITE_BACK_RA
 #define DATA_WRITE_BACK_FINAL
@@ -61,6 +61,8 @@ constexpr auto PI_h = 3.14159265358979f;
 constexpr auto LIGHT_SPEED_h = 300000000;
 constexpr auto RANGE_NUM_CUT = 512;
 constexpr auto FAST_ENTROPY_ITERATION_NUM = 120;
+constexpr auto MAX_THREAD_PER_BLOCK = 1024;
+constexpr auto DEFAULT_THREAD_PER_BLOCK = 256;
 
 namespace fs = std::filesystem;
 
@@ -90,7 +92,10 @@ public:
 	//cufftHandle plan_one_echo_c2r;  // implicitly inverse
 	cufftHandle plan_all_echo_c2r;  // implicitly inverse
 
+	// cuFFT plan after cut range profile
 	cufftHandle plan_all_range_c2c;
+	cufftHandle plan_all_range_c2c_czt;
+	cufftHandle plan_all_echo_c2c_cut;
 
 public:
 
@@ -125,6 +130,79 @@ void vecMulvec(cublasHandle_t handle, cuComplex* d_vec1, int len1, cuComplex* d_
 /// <param name="alpha"> alpha can be in host or device memory </param>
 void vecMulvec(cublasHandle_t handle, float* result_matrix, thrust::device_vector<float>& vec1, thrust::device_vector<float>& vec2, const float& alpha);  // todo: deprecated
 void vecMulvec(cublasHandle_t handle, float* d_vec1, int len1, float* d_vec2, int len2, float* d_res_matrix, const float& alpha);
+
+
+template <typename T>
+/// <summary>
+/// 
+/// </summary>
+/// <param name="a"></param>
+/// <param name="b"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void swap_range(T* a, T* b, int len)
+{
+	// [todo]: separate definition and declaration
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (tid < len) {
+		T c = a[tid]; a[tid] = b[tid]; b[tid] = c;
+	}
+}
+
+
+template <typename T>
+/// <summary>
+/// Kernel configuration requirement:
+/// (1) block_number == {((range_num / 2) + block.x - 1) / block.x, echo_num}
+/// (2) thread_per_block == {256}
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="cols"></param>
+/// <returns></returns>
+__global__ void ifftshiftRows(T* d_data, int cols)
+{
+	// [todo]: separate definition and declaration
+	int tid = blockDim.x * blockIdx.x + threadIdx.x;
+	int bidy = blockIdx.y;
+
+	int half_cols = cols >> 1;
+
+	if (tid < half_cols) {
+		// swap
+		T temp = d_data[bidy * cols + tid];
+		d_data[bidy * cols + tid] = d_data[bidy * cols + tid + half_cols];
+		d_data[bidy * cols + tid + half_cols] = temp;
+	}
+}
+
+
+template <typename T>
+/// <summary>
+/// Kernel configuration requirement:
+/// (1) block_number == {range_num, ((echo_num / 2) + block.x - 1) / block.x}
+/// (2) thread_per_block == {256}
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="cols"></param>
+/// <returns></returns>
+__global__ void ifftshiftCols(T* d_data, int rows)
+{
+	// [todo]: separate definition and declaration
+	int tid = blockDim.x * blockIdx.y + threadIdx.x;
+	int bidx = blockIdx.x;
+
+	int cols = gridDim.x;
+	int half_rows = rows >> 1;
+
+	if (tid < half_rows) {
+		// swap
+		T temp = d_data[tid * cols + bidx];
+		d_data[tid * cols + bidx] = d_data[(tid + half_rows) * cols + bidx];
+		d_data[(tid + half_rows) * cols + bidx] = temp;
+	}
+}
+
 
 /// <summary>
 /// 
@@ -287,24 +365,6 @@ __global__ void expJ(float* x, cuComplex* res, int len);
 __global__ void genHammingVec(float* hamming, int len);
 
 
-template <typename T>
-/// <summary>
-/// 
-/// </summary>
-/// <param name="a"></param>
-/// <param name="b"></param>
-/// <param name="len"></param>
-/// <returns></returns>
-__global__ void swap_range(T* a, T* b, int len)  // todo: separate definition and declaration
-{
-	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-
-	if (tid < len) {
-		T c = a[tid]; a[tid] = b[tid]; b[tid] = c;
-	}
-}
-
-
 //template <typename T>
 ///// <summary>
 ///// Reference: https://stackoverflow.com/questions/27925979/thrustmax-element-slow-in-comparison-cublasisamax-more-efficient-implementat
@@ -464,12 +524,11 @@ __global__ void setNumInArray(int* d_data, int* d_index, int val, int d_index_le
 /// <summary>
 /// HRRP
 /// </summary>
-/// <param name="plan"></param>
 /// <param name="d_hrrp"></param>
 /// <param name="d_data"></param>
-/// <param name="echo_num"></param>
-/// <param name="range_num"></param>
-/// <param name="d_fftshift"></param>
+/// <param name="hamming"></param>
+/// <param name="paras"></param>
+/// <param name="handles"></param>
 void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, float* hamming, const RadarParameters& paras, const CUDAHandle& handles);
 
 
@@ -592,13 +651,22 @@ public:
 		const vec2D_INT& stretchIndex, const std::vector<int>& dataWFileSn);
 
 	/// <summary>
-	/// write d_data reside in CPU memory back to outFilePath
+	/// write data reside in CPU memory back to outFilePath
 	/// </summary>
 	/// <param name="outFilePath"></param>
 	/// <param name="data"></param>
 	/// <param name="data_size"></param>
 	/// <returns></returns>
 	static int writeFile(const std::string& outFilePath, const std::complex<float>* data, const  size_t& data_size);
+
+	/// <summary>
+	/// write data reside in CPU memory back to outFilePath
+	/// </summary>
+	/// <param name="outFilePath"></param>
+	/// <param name="data"></param>
+	/// <param name="data_size"></param>
+	/// <returns></returns>
+	static int writeFile(const std::string& outFilePath, const float* data, const  size_t& data_size);
 
 	/// <summary>
 	/// write d_data reside in GPU memory back to outFilePath
@@ -608,6 +676,15 @@ public:
 	/// <param name="data_size"></param>
 	/// <returns></returns>
 	static int dataWriteBack(const std::string& outFilePath, const cuComplex* d_data, const  size_t& data_size);
+
+	/// <summary>
+	/// write d_data reside in GPU memory back to outFilePath
+	/// </summary>
+	/// <param name="outFilePath"></param>
+	/// <param name="d_data"></param>
+	/// <param name="data_size"></param>
+	/// <returns></returns>
+	static int dataWriteBack(const std::string& outFilePath, const float* d_data, const  size_t& data_size);
 };
 
 #endif // COMMON_H_

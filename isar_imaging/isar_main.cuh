@@ -5,6 +5,7 @@
 #include "high_speed_compensation.cuh"
 #include "range_alignment.cuh"
 #include "phase_adjustment.cuh"
+#include "mtrc.cuh"
 
 /// <summary>
 /// 

@@ -13,16 +13,24 @@ CUDAHandle::CUDAHandle(const int& echo_num, const int& range_num)
 	checkCudaErrors(cufftPlan1d(&plan_all_echo_c2r, range_num, CUFFT_C2R, echo_num));
 
 	// cuFFT data layout for applying fft to each column along first dimension
-	int batch_img = RANGE_NUM_CUT;
-	int rank_img = 1;
-	int n_img[1] = { echo_num };
-	int inembed_img[] = { echo_num };
-	int onembed_img[] = { echo_num };
-	int istride_img = RANGE_NUM_CUT;
-	int ostride_img = RANGE_NUM_CUT;
-	int idist_img = 1;
-	int odist_img = 1;
-	checkCudaErrors(cufftPlanMany(&plan_all_range_c2c, rank_img, n_img, inembed_img, istride_img, idist_img, onembed_img, ostride_img, odist_img, CUFFT_C2C, batch_img));
+	int batch = RANGE_NUM_CUT;
+	int rank = 1;
+	int n[] = { echo_num };
+	int inembed[] = { echo_num };
+	int onembed[] = { echo_num };
+	int istride = RANGE_NUM_CUT;
+	int ostride = RANGE_NUM_CUT;
+	int idist = 1;
+	int odist = 1;
+	checkCudaErrors(cufftPlanMany(&plan_all_range_c2c, rank, n, inembed, istride, idist, onembed, ostride, odist, CUFFT_C2C, batch));
+
+	int fft_len = nextPow2(2 * echo_num - 1);
+	n[0] = fft_len;
+	inembed[0] = fft_len;
+	onembed[0] = fft_len;
+	checkCudaErrors(cufftPlanMany(&plan_all_range_c2c_czt, rank, n, inembed, istride, idist, onembed, ostride, odist, CUFFT_C2C, batch));
+
+	checkCudaErrors(cufftPlan1d(&plan_all_echo_c2c_cut, RANGE_NUM_CUT, CUFFT_C2C, echo_num));
 }
 
 CUDAHandle::~CUDAHandle()
@@ -35,7 +43,10 @@ CUDAHandle::~CUDAHandle()
 	checkCudaErrors(cufftDestroy(plan_all_echo_r2c));
 	//checkCudaErrors(cufftDestroy(plan_one_echo_c2r));
 	checkCudaErrors(cufftDestroy(plan_all_echo_c2r));
+
 	checkCudaErrors(cufftDestroy(plan_all_range_c2c));
+	checkCudaErrors(cufftDestroy(plan_all_range_c2c_czt));
+	checkCudaErrors(cufftDestroy(plan_all_echo_c2c_cut));
 }
 
 
@@ -914,10 +925,44 @@ int ioOperation::writeFile(const std::string& outFilePath, const std::complex<fl
 	return EXIT_SUCCESS;
 }
 
-int ioOperation::dataWriteBack(const std::string& outFilePath, const cuComplex* d_data, const  size_t& data_size) {
+
+int ioOperation::writeFile(const std::string& outFilePath, const float* data, const  size_t& data_size)
+{
+	std::ofstream ofs(outFilePath);
+	if (!ofs.is_open()) {
+		std::cout << "Cannot open the file\n" << std::endl;
+		return EXIT_FAILURE;
+	}
+
+	for (int idx = 0; idx < data_size; idx++) {
+		ofs << std::fixed << std::setprecision(3) << data[idx] << "\n";
+	}
+
+	ofs.close();
+	return EXIT_SUCCESS;
+}
+
+
+int ioOperation::dataWriteBack(const std::string& outFilePath, const cuComplex* d_data, const  size_t& data_size)
+{
 
 	std::complex<float>* h_data = new std::complex<float>[data_size];
 	checkCudaErrors(cudaMemcpy(h_data, d_data, sizeof(cuComplex) * data_size, cudaMemcpyDeviceToHost));  // data (device -> host)
+
+	ioOperation::writeFile(outFilePath, h_data, data_size);
+
+	delete[] h_data;
+	h_data = nullptr;
+
+	return EXIT_SUCCESS;
+}
+
+
+int ioOperation::dataWriteBack(const std::string& outFilePath, const float* d_data, const  size_t& data_size)
+{
+
+	float* h_data = new float[data_size];
+	checkCudaErrors(cudaMemcpy(h_data, d_data, sizeof(float) * data_size, cudaMemcpyDeviceToHost));  // data (device -> host)
 
 	ioOperation::writeFile(outFilePath, h_data, data_size);
 

@@ -39,6 +39,15 @@ int main()
     paras.range_num = static_cast<int>(dataW.size()) / paras.echo_num;
     paras.data_num = static_cast<int>(dataW.size());
 
+    if (paras.echo_num > MAX_THREAD_PER_BLOCK) {
+        std::cout << "[main/WARN] echo_num > MAX_THREAD_PER_BLOCK: " << MAX_THREAD_PER_BLOCK << ", please double-check the data, then reconfiguring the parameters." << std::endl;
+        return EXIT_FAILURE;
+    }
+    if (paras.range_num < RANGE_NUM_CUT) {
+        std::cout << "[main/WARN] range_num < RANGE_NUM_CUT: " << RANGE_NUM_CUT << ", please double-check the data or optimize process of cutRangeProfile()." << std::endl;
+        return EXIT_FAILURE;
+    }
+
     auto t_pre_processing_2 = std::chrono::high_resolution_clock::now();
     std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(t_pre_processing_2 - t_pre_processing_1).count() << "ms\n";
     std::cout << "---* Pre Processing Over *---\n";
