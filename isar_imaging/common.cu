@@ -50,41 +50,6 @@ CUDAHandle::~CUDAHandle()
 }
 
 
-void vecMulvec(cublasHandle_t handle, cuComplex* result_matrix, thrust::device_vector<comThr>& vec1, thrust::device_vector<comThr>& vec2, const cuComplex& alpha)
-{
-	int vec1_len = static_cast<int>(vec1.size());
-	int vec2_len = static_cast<int>(vec2.size());
-
-	cuComplex* d_vec1 = reinterpret_cast<cuComplex*>(thrust::raw_pointer_cast(vec1.data()));
-	cuComplex* d_vec2 = reinterpret_cast<cuComplex*>(thrust::raw_pointer_cast(vec2.data()));
-
-	checkCudaErrors(cublasCgeru(handle, vec1_len, vec2_len, &alpha, d_vec1, 1, d_vec2, 1, result_matrix, vec1_len));
-}
-
-
-void vecMulvec(cublasHandle_t handle, cuComplex* d_vec1, int len1, cuComplex* d_vec2, int len2, cuComplex* d_res_matrix, const cuComplex& alpha)
-{
-	checkCudaErrors(cublasCgeru(handle, len1, len2, &alpha, d_vec1, 1, d_vec2, 1, d_res_matrix, len1));
-}
-
-
-void vecMulvec(cublasHandle_t handle, float* result_matrix, thrust::device_vector<float>& vec1, thrust::device_vector<float>& vec2, const float& alpha)
-{
-	int vec1_len = static_cast<int>(vec1.size());
-	int vec2_len = static_cast<int>(vec2.size());
-
-	float* d_vec1 = reinterpret_cast<float*>(thrust::raw_pointer_cast(vec1.data()));
-	float* d_vec2 = reinterpret_cast<float*>(thrust::raw_pointer_cast(vec2.data()));
-
-	checkCudaErrors(cublasSger(handle, vec1_len, vec2_len, &alpha, d_vec1, 1, d_vec2, 1, result_matrix, vec1_len));
-}
-
-void vecMulvec(cublasHandle_t handle, float* d_vec1, int len1, float* d_vec2, int len2, float* d_res_matrix, const float& alpha)
-{
-	checkCudaErrors(cublasSger(handle, len1, len2, &alpha, d_vec1, 1, d_vec2, 1, d_res_matrix, len1));
-}
-
-
 void getMax(cublasHandle_t handle, float* d_vec, int len, int* h_max_idx, float* h_max_val)
 {
 	checkCudaErrors(cublasIsamax(handle, len, d_vec, 1, h_max_idx));
@@ -92,6 +57,7 @@ void getMax(cublasHandle_t handle, float* d_vec, int len, int* h_max_idx, float*
 
 	checkCudaErrors(cudaMemcpy(h_max_val, d_vec + *h_max_idx, sizeof(float), cudaMemcpyDeviceToHost));
 }
+
 
 void getMax(cublasHandle_t handle, cuComplex* d_vec, int len, int* h_max_idx, cuComplex* h_max_val)
 {
@@ -120,15 +86,6 @@ __global__ void elementwiseAbs(cuComplex* a, float* abs, int len)
 }
 
 
-__global__ void elementwiseMean(cuComplex* a, cuComplex* b, cuComplex* c, int len)
-{
-	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	if (tid < len) {
-		c[tid] = make_cuComplex((cuCrealf(a[tid]) + cuCrealf(b[tid])) / 2, (cuCimagf(a[tid]) + cuCimagf(b[tid])) / 2);
-	}
-}
-
-
 __global__ void elementwiseMultiply(cuComplex* a, cuComplex* b, cuComplex* c, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -136,6 +93,16 @@ __global__ void elementwiseMultiply(cuComplex* a, cuComplex* b, cuComplex* c, in
 		c[tid] = cuCmulf(a[tid], b[tid]);
 	}
 }
+
+
+__global__ void elementwiseMultiply(cuDoubleComplex* a, cuDoubleComplex* b, cuDoubleComplex* c, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		c[tid] = cuCmul(a[tid], b[tid]);
+	}
+}
+
 
 __global__ void elementwiseMultiplyConjA(cuComplex* a, cuComplex* b, cuComplex* c, int len)
 {
@@ -155,6 +122,15 @@ __global__ void elementwiseMultiplyRep(cuComplex* a, cuComplex* b, cuComplex* c,
 }
 
 
+__global__ void elementwiseMultiplyRep(cuDoubleComplex* a, cuDoubleComplex* b, cuDoubleComplex* c, int len_a, int len_b)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len_b) {
+		c[tid] = cuCmul(a[tid % len_a], b[tid]);
+	}
+}
+
+
 __global__ void elementwiseMultiply(float* a, float* b, float* c, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -164,15 +140,6 @@ __global__ void elementwiseMultiply(float* a, float* b, float* c, int len)
 }
 
 
-/// <summary>
-/// c = b ./ repmat(a, (len_b/len_a), 1)
-/// </summary>
-/// <param name="a"> len_a </param>
-/// <param name="b"> len_b </param>
-/// <param name="c"> len_c == len_b </param>
-/// <param name="len_a"></param>
-/// <param name="len_b"></param>
-/// <returns></returns>
 __global__ void elementwiseDivRep(float* a, float* b, float* c, int len_a, int len_b)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -209,25 +176,25 @@ __global__ void elementwiseMultiply(float* a, cuComplex* b, float* c, int len)
 }
 
 
-__global__ void expJ(float* x, cuComplex* res, int len)
+__global__ void expJ(double* x, cuDoubleComplex* res, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < len) {
-		res[tid] = make_cuComplex(std::cos(x[tid]), std::sin(x[tid]));
+		res[tid] = make_cuDoubleComplex(std::cos(x[tid]), std::sin(x[tid]));
 	}
 }
 
 
-__global__ void genHammingVec(float* hamming, int len)
+__global__ void genHammingVec(float* d_hamming, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < (len / 2)) {
 		int tx = tid;
-		hamming[tid] = (0.54f - 0.46f * std::cos(2 * PI_h * (static_cast<float>(tx) / len - 1)));
+		d_hamming[tid] = (0.54f - 0.46f * std::cos(2 * PI_FLT * (static_cast<float>(tx) / len - 1)));
 	}
 	else if (tid < len) {
 		int tx = len - tid - 1;
-		hamming[tid] = (0.54f - 0.46f * std::cos(2 * PI_h * (static_cast<float>(tx) / len - 1)));
+		d_hamming[tid] = (0.54f - 0.46f * std::cos(2 * PI_FLT * (static_cast<float>(tx) / len - 1)));
 	}
 }
 
@@ -459,7 +426,7 @@ void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& rang
 {
 	int data_num_cut = paras.echo_num * range_num_cut;
 
-	dim3 block(256);  // block size
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
 	dim3 grid((data_num_cut + block.x - 1) / block.x);  // grid size
 
 	cuComplex* d_data_cut = nullptr;
@@ -518,35 +485,28 @@ __global__ void setNumInArray(int* d_data, int* d_index, int val, int d_index_le
 }
 
 
-void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, float* hamming, const RadarParameters& paras, const CUDAHandle& handles)
+void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles)
 {
-	int swap_len = paras.data_num / 2;
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
 
-	dim3 block(256);  // block size
-	dim3 grid((paras.data_num + block.x - 1) / block.x);  // grid size
-	dim3 grid_swap((swap_len + block.x - 1) / block.x);
-
-	// d_data = d_data .* repmat(hamming, echo_num, 1)
-	elementwiseMultiplyRep << <grid, block >> > (hamming, d_data, d_data, paras.range_num, paras.data_num);
-	checkCudaErrors(cudaDeviceSynchronize());
-
-	// d_hrrp = fftshift(fft(d_data))
+	// fft
 	checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c, d_data, d_hrrp, CUFFT_FORWARD));
-	swap_range<cuComplex> << <grid_swap, block >> > (d_hrrp, d_hrrp + swap_len, swap_len);  // fftshift
+	// fftshift
+	ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_hrrp, paras.range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 }
 
 
 float getTurnAngle(const float& azimuth1, const float& pitching1, const float& azimuth2, const float& pitching2) {
-	std::vector<float> vec_1({ std::sin(pitching1 / 180 * PI_h), \
-		std::cos(pitching1 / 180 * PI_h) * std::cos(azimuth1 / 180 * PI_h), \
-		std::cos(pitching1 / 180 * PI_h) * std::sin(azimuth1 / 180 * PI_h) });
+	std::vector<float> vec_1({ std::sin(pitching1 / 180 * PI_FLT), \
+		std::cos(pitching1 / 180 * PI_FLT) * std::cos(azimuth1 / 180 * PI_FLT), \
+		std::cos(pitching1 / 180 * PI_FLT) * std::sin(azimuth1 / 180 * PI_FLT) });
 
-	std::vector<float> vec_2({ std::sin(pitching2 / 180 * PI_h), \
-		std::cos(pitching2 / 180 * PI_h) * std::cos(azimuth2 / 180 * PI_h), \
-		std::cos(pitching2 / 180 * PI_h) * std::sin(azimuth2 / 180 * PI_h) });
+	std::vector<float> vec_2({ std::sin(pitching2 / 180 * PI_FLT), \
+		std::cos(pitching2 / 180 * PI_FLT) * std::cos(azimuth2 / 180 * PI_FLT), \
+		std::cos(pitching2 / 180 * PI_FLT) * std::sin(azimuth2 / 180 * PI_FLT) });
 
-	float ret = std::acos(vec_1[0] * vec_2[0] + vec_1[1] * vec_2[1] + vec_1[2] * vec_2[2]) / PI_h * 180;
+	float ret = std::acos(vec_1[0] * vec_2[0] + vec_1[1] * vec_2[1] + vec_1[2] * vec_2[2]) / PI_FLT * 180;
 
 	return ret;
 }
@@ -657,8 +617,8 @@ float interpolate(const std::vector<int>& xData, const std::vector<float>& yData
 	return yL + dydx * (x - xL);  // linear interpolation
 }
 
-int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FLOAT* dataNOut, std::vector<float>* turnAngleOut, \
-	const vec2D_FLOAT& dataN, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len)
+int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
+	const vec2D_DBL& dataN, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len)
 {
 	int window_end = window_head + sampling_stride * window_len - 1;
 	if (window_end > turnAngle.size()) {
@@ -680,11 +640,11 @@ int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FL
 
 	// TurnAngleOut = abs(TurnAngle(window_head:sampling_stride:window_end));
 	turnAngleOut->assign(dataWFileSn->size(), 0);
-	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), turnAngleOut->begin(), [=](int x) {return std::abs(turnAngle[x]); });
+	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), turnAngleOut->begin(), [=](const int& x) {return std::abs(turnAngle[x]); });
 
 	// DataNOut = DataN(window_head:sampling_stride:window_end, : );
-	dataNOut->assign(dataWFileSn->size(), std::vector<float>(8, 0));
-	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin(), [=](int x) {return dataN[x]; });
+	dataNOut->assign(dataWFileSn->size(), std::vector<double>(8, 0));
+	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin(), [=](const int& x) {return dataN[x]; });
 	*flagDataEnd = 0;
 
 	return EXIT_SUCCESS;
@@ -733,14 +693,13 @@ int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* fra
 	ifs.seekg(0, ifs.beg);
 
 	uint32_t temp[36]{};
-	ifs.read((char*)&temp, sizeof(temp));
+	ifs.read((char*)&temp, sizeof(uint32_t) * 36);
 
+	// [Caution] Possibly bits overflow
 	*frame_len = static_cast<int>(temp[4] * 4);  // length of frame, including frame head and orthogonal demodulation data.(unit: Byte)
 	paras->fc = static_cast<long long>(temp[12] * 1e6);  // signal carrier frequency
 	paras->band_width = static_cast<long long>(temp[13] * 1e6);  // signal band width
-	//float PRI = temp[14] / 1e6;  // pulse repetition interval
-	//float PRF = 1 / PRI;
-	paras->Tp = static_cast<float>(temp[15] / 1e6);  // pulse width
+	paras->Tp = static_cast<double>(temp[15] / 1e6);  // pulse width
 	paras->Fs = static_cast<int>((temp[17] % static_cast<int>(std::pow(2, 16))) * 1e6);  // sampling frequency
 	*frame_num = static_cast<int>(fs::file_size(fs::path(m_filePath))) / *frame_len;
 
@@ -749,7 +708,7 @@ int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* fra
 	return EXIT_SUCCESS;
 }
 
-int ioOperation::readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, int* pulse_num_all, \
+int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, int* pulse_num_all, \
 	const RadarParameters& paras, const int& frame_len, const int& frame_num)
 {
 	std::ifstream ifs;
@@ -759,13 +718,21 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIn
 		return EXIT_FAILURE;
 	}
 
-	dataN->assign(frame_num, std::vector<float>(8, 0));
+	dataN->assign(frame_num, std::vector<double>(8, 0));
 	stretchIndex->assign(frame_num, std::vector<int>(2, 0));
 
-	std::vector<float> azimuthVec(frame_num, 0);
+	std::vector<float> azimuthVec(frame_num, 0);  // todo: expanding to double?
 	std::vector<float> pitchingVec(frame_num, 0);
 
-	float timeYear = 0;  // time info only need read once
+	uint64_t sysTime = 0;
+	uint32_t headerData[11]{};
+
+	double range = 0;  // unit: m
+	double velocity = 0;  // unit: m/s
+	double azimuth = 0;
+	double pitching = 0;
+
+	float timeYear = 0;  // only need to be read once
 	float timeMonth = 0;
 	float timeDay = 0;
 	for (int i = 0; i < frame_num; i++) {
@@ -773,49 +740,23 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIn
 
 		stretchIndex->at(i) = std::vector<int>({ i * frame_len + 256, frame_len });
 
-		uint64_t sysTime = 0;
 		ifs.read((char*)&sysTime, sizeof(uint64_t));
 
-		uint32_t headerData[11]{};
-		ifs.read((char*)&headerData, sizeof(headerData));
+		ifs.read((char*)&headerData, sizeof(uint32_t) * 11);
 
-		float range = static_cast<float>(headerData[7]) * 0.1f;  // unit: m
-		float velocity = static_cast<float>(headerData[8]);  // unit: m/s
-		float azimuth = static_cast<float>(headerData[9]);
-		float pitching = static_cast<float>(headerData[10]);
+		range = static_cast<double>(headerData[7]) * 0.1;
+		velocity = static_cast<double>(headerData[8]);
+		azimuth = static_cast<double>(headerData[9]);
+		pitching = static_cast<double>(headerData[10]);
 
-		/*if (velocity > std::pow(2, 31)) {
-			velocity = (velocity - std::pow(2, 32)) * 0.1;
-		}
-		else {
-			velocity = velocity * 0.1;
-		}*/
-		velocity = (velocity - (velocity > static_cast<float>(std::pow(2, 31)) ? static_cast<float>(std::pow(2, 32)) : 0)) * 0.1f;
+		// [caution]: possible bit overflow
+		velocity = (velocity - (velocity > std::pow(2, 31) ? std::pow(2, 32) : 0)) * 0.1;
 
+		azimuth = (azimuth - (azimuth > std::pow(2, 31) ? std::pow(2, 32) : 0)) * (360.0 / std::pow(2, 24));
+		azimuth += (azimuth < 0 ? 360.0 : 0);
 
-		/*if (azimuth > std::pow(2, 31)) {
-			azimuth = (azimuth - std::pow(2, 32)) * (360 / std::pow(2, 24));
-		}
-		else {
-			azimuth = azimuth * (360 / std::pow(2, 24));
-		}*/
-		/*if (azimuth < 0) {
-			azimuth = azimuth + 360;
-		}*/
-		azimuth = (azimuth - (azimuth > static_cast<float>(std::pow(2, 31)) ? static_cast<float>(std::pow(2, 32)) : 0)) * (360 / static_cast<float>(std::pow(2, 24)));
-		azimuth += (azimuth < 0 ? 360 : 0);
-
-		/*if (pitching > std::pow(2, 31)) {
-			pitching = (pitching - std::pow(2, 32)) * (360 / std::pow(2, 24));
-		}
-		else {
-			pitching = pitching * (360 / std::pow(2, 24));
-		}*/
-		/*if (pitching < 0) {
-			pitching = pitching + 360;
-		}*/
-		pitching = (pitching - (pitching > static_cast<float>(std::pow(2, 31)) ? static_cast<float>(std::pow(2, 32)) : 0)) * (360 / static_cast<float>(std::pow(2, 24)));
-		pitching += (pitching < 0 ? 360 : 0);
+		pitching = (pitching - (pitching > std::pow(2, 31) ? std::pow(2, 32) : 0)) * (360.0 / std::pow(2, 24));
+		pitching += (pitching < 0 ? 360.0 : 0);
 
 		ifs.seekg(i * frame_len + 32, ifs.beg);
 
@@ -824,9 +765,9 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIn
 			ifs.read((char*)&timeMonth, sizeof(uint8_t));
 			ifs.read((char*)&timeDay, sizeof(uint8_t));
 		}
-		dataN->at(i) = std::vector<float>({ range, velocity, azimuth, pitching, static_cast<float>(sysTime), timeYear, timeMonth, timeDay });
-		azimuthVec[i] = azimuth;
-		pitchingVec[i] = pitching;
+		dataN->at(i) = std::vector<double>({ range, velocity, azimuth, pitching, static_cast<double>(sysTime), static_cast<double>(timeYear), static_cast<double>(timeMonth), static_cast<double>(timeDay) });
+		azimuthVec[i] = static_cast<float>(azimuth);
+		pitchingVec[i] = static_cast<float>(pitching);
 	}
 
 	turnAngleLine(turnAngle, azimuthVec, pitchingVec);
@@ -837,8 +778,8 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIn
 	return EXIT_SUCCESS;
 }
 
-int ioOperation::getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FLOAT* dataNOut, std::vector<float>* turnAngleOut, \
-	const vec2D_FLOAT& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len, const bool& nonUniformSampling)
+int ioOperation::getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
+	const vec2D_DBL& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len, const bool& nonUniformSampling)
 {
 
 	if (nonUniformSampling == true) {
@@ -851,7 +792,7 @@ int ioOperation::getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn
 	return EXIT_SUCCESS;
 }
 
-int ioOperation::getKuDataStretch(vec1D_COM_FLOAT* dataW, std::vector<int>* frameHeader, \
+int ioOperation::getKuDataStretch(vec1D_COM_FLT* dataW, std::vector<int>* frameHeader, \
 	const vec2D_INT& stretchIndex, const std::vector<int>& dataWFileSn)
 {
 	std::ifstream ifs;
@@ -909,7 +850,7 @@ int ioOperation::getKuDataStretch(vec1D_COM_FLOAT* dataW, std::vector<int>* fram
 }
 
 
-int ioOperation::writeFile(const std::string& outFilePath, const std::complex<float>* data, const  size_t& data_size)
+int ioOperation::writeFile(const std::string& outFilePath, const cuComplex* data, const  size_t& data_size)
 {
 	std::ofstream ofs(outFilePath);
 	if (!ofs.is_open()) {
@@ -918,7 +859,23 @@ int ioOperation::writeFile(const std::string& outFilePath, const std::complex<fl
 	}
 
 	for (int idx = 0; idx < data_size; idx++) {
-		ofs << std::fixed << std::setprecision(3) << data[idx].real() << "\n" << data[idx].imag() << "\n";
+		ofs << std::fixed << std::setprecision(5) << data[idx].x << "\n" << data[idx].y << "\n";
+	}
+
+	ofs.close();
+	return EXIT_SUCCESS;
+}
+
+int ioOperation::writeFile(const std::string& outFilePath, const cuDoubleComplex* data, const  size_t& data_size)
+{
+	std::ofstream ofs(outFilePath);
+	if (!ofs.is_open()) {
+		std::cout << "Cannot open the file\n" << std::endl;
+		return EXIT_FAILURE;
+	}
+
+	for (int idx = 0; idx < data_size; idx++) {
+		ofs << std::fixed << std::setprecision(5) << data[idx].x << "\n" << data[idx].y << "\n";
 	}
 
 	ofs.close();
@@ -935,7 +892,7 @@ int ioOperation::writeFile(const std::string& outFilePath, const float* data, co
 	}
 
 	for (int idx = 0; idx < data_size; idx++) {
-		ofs << std::fixed << std::setprecision(3) << data[idx] << "\n";
+		ofs << std::fixed << std::setprecision(5) << data[idx] << "\n";
 	}
 
 	ofs.close();
@@ -943,31 +900,18 @@ int ioOperation::writeFile(const std::string& outFilePath, const float* data, co
 }
 
 
-int ioOperation::dataWriteBack(const std::string& outFilePath, const cuComplex* d_data, const  size_t& data_size)
+int ioOperation::writeFile(const std::string& outFilePath, const double* data, const  size_t& data_size)
 {
+	std::ofstream ofs(outFilePath);
+	if (!ofs.is_open()) {
+		std::cout << "Cannot open the file\n" << std::endl;
+		return EXIT_FAILURE;
+	}
 
-	std::complex<float>* h_data = new std::complex<float>[data_size];
-	checkCudaErrors(cudaMemcpy(h_data, d_data, sizeof(cuComplex) * data_size, cudaMemcpyDeviceToHost));  // data (device -> host)
+	for (int idx = 0; idx < data_size; idx++) {
+		ofs << std::fixed << std::setprecision(5) << data[idx] << "\n";
+	}
 
-	ioOperation::writeFile(outFilePath, h_data, data_size);
-
-	delete[] h_data;
-	h_data = nullptr;
-
-	return EXIT_SUCCESS;
-}
-
-
-int ioOperation::dataWriteBack(const std::string& outFilePath, const float* d_data, const  size_t& data_size)
-{
-
-	float* h_data = new float[data_size];
-	checkCudaErrors(cudaMemcpy(h_data, d_data, sizeof(float) * data_size, cudaMemcpyDeviceToHost));  // data (device -> host)
-
-	ioOperation::writeFile(outFilePath, h_data, data_size);
-
-	delete[] h_data;
-	h_data = nullptr;
-
+	ofs.close();
 	return EXIT_SUCCESS;
 }

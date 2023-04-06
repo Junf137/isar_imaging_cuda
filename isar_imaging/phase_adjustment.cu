@@ -6,7 +6,7 @@ void dopplerTracking(cuComplex* d_data_comp, cuComplex* d_phase, cuComplex* d_da
 	int data_num = echo_num * range_num;
 	int data_num_less_echo = (echo_num - 1) * range_num;
 
-	dim3 block(256);
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);
 	dim3 grid((data_num + block.x - 1) / block.x);
 
 	// * Applying conjugate multiplication on two successive rows
@@ -54,78 +54,83 @@ __global__ void diagMulMat(cuComplex* d_diag, cuComplex* d_data, cuComplex* d_re
 }
 
 
-void rangeVariantPhaseComp(cuComplex* d_data, float* h_azimuth, float* h_pitch, const RadarParameters& paras, const CUDAHandle& handles)
-{
-	// transfer angle information to device, calculating central angle
-	int mid_index = paras.echo_num / 2;
-	float middle_azimuth = h_azimuth[mid_index];
-	float middle_pitch = h_pitch[mid_index];
-
-	float* d_azimuth = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_azimuth, sizeof(float) * paras.echo_num));
-	checkCudaErrors(cudaMemcpy(d_azimuth, h_azimuth, sizeof(float) * paras.echo_num, cudaMemcpyHostToDevice));
-
-	float* d_pitch = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_pitch, sizeof(float) * paras.echo_num));
-	checkCudaErrors(cudaMemcpy(d_pitch, h_pitch, sizeof(float) * paras.echo_num, cudaMemcpyHostToDevice));
-
-	float resolution = static_cast<float>(LIGHT_SPEED_h) / static_cast<float>(2 * paras.band_width);
-	float wave_length = static_cast<float>(LIGHT_SPEED_h) / static_cast<float>(paras.fc);
-
-	// assuming the rotation center is in the middle of the 1D image, generating range vector
-	thrust::device_vector<float>range(paras.range_num);
-	thrust::sequence(thrust::device, range.begin(), range.end(), -float(paras.range_num) / 2.0);
-
-	thrust::transform(thrust::device, range.begin(), range.end(), range.begin(), \
-		[=]__host__ __device__(const float& x) { return x * 2.0f * resolution / wave_length; });
-
-	// calculating turning angle of each echo comparing to that of middle echo signal
-	thrust::device_vector<float> theta(paras.echo_num);
-	thrust::device_ptr<float> thr_azimuth = thrust::device_pointer_cast(d_azimuth);
-	thrust::device_ptr<float> thr_pitch = thrust::device_pointer_cast(d_pitch);
-	float mid_x = sinf(middle_pitch / 180 * PI_h);
-	float mid_y = cosf(middle_pitch / 180 * PI_h) * cosf(middle_azimuth / 180 * PI_h);
-	float mid_z = cosf(middle_pitch / 180 * PI_h) * sinf(middle_azimuth / 180 * PI_h);
-
-	thrust::transform(thrust::device, thr_azimuth, thr_azimuth + paras.echo_num, thr_pitch, theta.begin(), \
-		[=]__host__ __device__(const float& cur_azi, const float& cur_pit)
-	{
-		float x = sinf(cur_pit / 180 * PI_h);
-		float y = cosf(cur_pit / 180 * PI_h) * cosf(cur_azi / 180 * PI_h);
-		float z = cosf(cur_pit / 180 * PI_h) * sinf(cur_azi / 180 * PI_h);
-
-		float angle = (x * mid_x + y * mid_y + z * mid_z);
-		angle = acosf(angle);
-		float angle2;
-		angle2 = powf(angle, 2.0);
-		return angle2;
-	});
-
-	// build compensation matrix and compensate range sequence
-	float* comp_mat = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&comp_mat, sizeof(float) * paras.data_num));
-	checkCudaErrors(cudaMemset(comp_mat, 0, sizeof(float) * paras.data_num));
-
-	// 08-05-2020 modified
-	vecMulvec(handles.handle, comp_mat, range, theta, 1.0f);
-	thrust::device_ptr<float> thr_comp_mat = thrust::device_pointer_cast(comp_mat);
-	thrust::device_ptr<comThr> thr_data = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_data));
-
-	thrust::transform(thrust::device, thr_comp_mat, thr_comp_mat + paras.data_num, thr_data, thr_data, \
-		[]__host__ __device__(const float& x, const comThr & y) { return y * thrust::exp(comThr(0.0, -2 * PI_h * x)); });
-
-	// Free Allocated GPU Memory
-	checkCudaErrors(cudaFree(d_azimuth));
-	checkCudaErrors(cudaFree(d_pitch));
-	checkCudaErrors(cudaFree(comp_mat));
-}
+//void rangeVariantPhaseComp(cuComplex* d_data, double* h_azimuth, double* h_pitch, const RadarParameters& paras, const CUDAHandle& handles)
+//{
+//	// [todo] expanding data width to double
+//	// transfer angle information to device, calculating central angle
+//	int mid_index = paras.echo_num / 2;
+//	float middle_azimuth = h_azimuth[mid_index];
+//	float middle_pitch = h_pitch[mid_index];
+//
+//	float* d_azimuth = nullptr;
+//	checkCudaErrors(cudaMalloc((void**)&d_azimuth, sizeof(float) * paras.echo_num));
+//	checkCudaErrors(cudaMemcpy(d_azimuth, h_azimuth, sizeof(float) * paras.echo_num, cudaMemcpyHostToDevice));
+//
+//	float* d_pitch = nullptr;
+//	checkCudaErrors(cudaMalloc((void**)&d_pitch, sizeof(float) * paras.echo_num));
+//	checkCudaErrors(cudaMemcpy(d_pitch, h_pitch, sizeof(float) * paras.echo_num, cudaMemcpyHostToDevice));
+//
+//	float resolution = static_cast<float>(LIGHT_SPEED) / static_cast<float>(2 * paras.band_width);
+//	float wave_length = static_cast<float>(LIGHT_SPEED) / static_cast<float>(paras.fc);
+//
+//	// assuming the rotation center is in the middle of the 1D image, generating range vector
+//	thrust::device_vector<float> range(paras.range_num);
+//	float* d_range = thrust::raw_pointer_cast(range.data());
+//	thrust::sequence(thrust::device, range.begin(), range.end(), -float(paras.range_num) / 2.0);
+//
+//	thrust::transform(thrust::device, range.begin(), range.end(), range.begin(), \
+//		[=]__host__ __device__(const float& x) { return x * 2.0f * resolution / wave_length; });
+//
+//	// calculating turning angle of each echo comparing to that of middle echo signal
+//	thrust::device_vector<float> theta(paras.echo_num);
+//	float* d_theta = thrust::raw_pointer_cast(theta.data());
+//	thrust::device_ptr<float> thr_azimuth = thrust::device_pointer_cast(d_azimuth);
+//	thrust::device_ptr<float> thr_pitch = thrust::device_pointer_cast(d_pitch);
+//	float mid_x = sinf(middle_pitch / 180 * PI_FLT);
+//	float mid_y = cosf(middle_pitch / 180 * PI_FLT) * cosf(middle_azimuth / 180 * PI_FLT);
+//	float mid_z = cosf(middle_pitch / 180 * PI_FLT) * sinf(middle_azimuth / 180 * PI_FLT);
+//
+//	thrust::transform(thrust::device, thr_azimuth, thr_azimuth + paras.echo_num, thr_pitch, theta.begin(), \
+//		[=]__host__ __device__(const float& cur_azi, const float& cur_pit)
+//	{
+//		float x = sinf(cur_pit / 180 * PI_FLT);
+//		float y = cosf(cur_pit / 180 * PI_FLT) * cosf(cur_azi / 180 * PI_FLT);
+//		float z = cosf(cur_pit / 180 * PI_FLT) * sinf(cur_azi / 180 * PI_FLT);
+//
+//		float angle = (x * mid_x + y * mid_y + z * mid_z);
+//		angle = acosf(angle);
+//		float angle2;
+//		angle2 = powf(angle, 2.0);
+//		return angle2;
+//	});
+//
+//	// build compensation matrix and compensate range sequence
+//	float* d_comp_mat = nullptr;
+//	checkCudaErrors(cudaMalloc((void**)&d_comp_mat, sizeof(float) * paras.data_num));
+//	checkCudaErrors(cudaMemset(d_comp_mat, 0, sizeof(float) * paras.data_num));
+//
+//	// 08-05-2020 modified
+//	float alpha = 1.0f;
+//	checkCudaErrors(cublasSger(handles.handle, paras.range_num, paras.echo_num, &alpha, d_range, 1, d_theta, 1, d_comp_mat, paras.range_num));
+//
+//	thrust::device_ptr<float> thr_comp_mat = thrust::device_pointer_cast(d_comp_mat);
+//	thrust::device_ptr<comThr> thr_data = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_data));
+//
+//	thrust::transform(thrust::device, thr_comp_mat, thr_comp_mat + paras.data_num, thr_data, thr_data, \
+//		[]__host__ __device__(const float& x, const comThr & y) { return y * thrust::exp(comThr(0.0, -2 * PI_FLT * x)); });
+//
+//	// Free Allocated GPU Memory
+//	checkCudaErrors(cudaFree(d_azimuth));
+//	checkCudaErrors(cudaFree(d_pitch));
+//	checkCudaErrors(cudaFree(d_comp_mat));
+//}
 
 
 void fastEntropy(cuComplex*& d_data, const int& echo_num, const int& range_num, const CUDAHandle& handles)
 {
 	int data_num = echo_num * range_num;
 
-	dim3 block(256);  // block size
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
 	dim3 grid((data_num + block.x - 1) / block.x);  // grid size
 
 	// * Pre-processing and pre-imaging

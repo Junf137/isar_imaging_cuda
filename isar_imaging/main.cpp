@@ -16,7 +16,7 @@ int main()
     int frame_num = 0;
     io->getSystemParasFirstFileStretch(&paras, &frame_len, &frame_num);
 
-    vec2D_FLOAT dataN;
+    vec2D_DBL dataN;
     vec2D_INT stretchIndex;
     std::vector<float> turnAngle;
     int pulse_num_all = 0;
@@ -28,11 +28,11 @@ int main()
     bool nonUniformSampling = false;
     int flagDataEnd = 0;
     std::vector<int> dataWFileSn;
-    vec2D_FLOAT dataNOut;
+    vec2D_DBL dataNOut;
     std::vector<float> turnAngleOut;
     io->getKuDatafileSn(&flagDataEnd, &dataWFileSn, &dataNOut, &turnAngleOut, dataN, paras, turnAngle, sampling_stride, window_head, window_len, nonUniformSampling);
 
-    vec1D_COM_FLOAT dataW;
+    vec1D_COM_FLT dataW;
     std::vector<int> frameHeader;
     io->getKuDataStretch(&dataW, &frameHeader, stretchIndex, dataWFileSn);
     paras.echo_num = static_cast<int>(dataWFileSn.size());

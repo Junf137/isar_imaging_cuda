@@ -88,7 +88,7 @@ __global__ void getCZTOut(cuComplex* d_czt, cuComplex* d_ifft, cuComplex* d_ww, 
 /// <param name="d_a"> vector of length range_num </param>
 void cztRange(cuComplex* d_czt, cuComplex* d_data, cuComplex* d_w, cuComplex* d_a, const int& echo_num, const int& range_num, const CUDAHandle& handles)
 {
-	dim3 block(256);
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);
 
 	// nfft = 2^nextpow2(m+k-1);
 	int fft_len = nextPow2(2 * echo_num - 1);
@@ -153,14 +153,14 @@ __global__ void getWandA(cuComplex* d_w, cuComplex* d_a, int echo_num, int range
 	if (tid < range_num) {
 		// calculating w vector
 		//w = exp( -1j * 2 * pi * (1 - K * 0.5 * T_ref / f0 + posa * (n - 1)) / Na );
-		float tmp = -2 * PI_h * (1 - constant + posa * tid) / echo_num;
+		float tmp = -2 * PI_FLT * (1 - constant + posa * tid) / echo_num;
 		d_w[tid] = make_cuComplex(std::cos(tmp), std::sin(tmp));
  	}
 	else if (tid < 2 * range_num) {
 		// calculating a vector
 		//a = exp( -1j * pi * (1 - K * 0.5 * T_ref / f0 + posa * (n - 1)) );
 		tid -= range_num;
-		float tmp = -1 * PI_h * (1 - constant + posa * tid);
+		float tmp = -1 * PI_FLT * (1 - constant + posa * tid);
 		d_a[tid] = make_cuComplex(std::cos(tmp), std::sin(tmp));
 	}
 }
@@ -168,13 +168,13 @@ __global__ void getWandA(cuComplex* d_w, cuComplex* d_a, int echo_num, int range
 
 void mtrc(cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles)
 {
-	dim3 block(256);
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);
 	float scale_ifft_range = 1 / static_cast<float>(paras.range_num);
 	float scale_ifft_echo = 1 / static_cast<float>(paras.echo_num);
 
-	float chirp_rate = static_cast<float>(paras.band_width) / paras.Tp;
+	float chirp_rate = static_cast<float>(paras.band_width) / static_cast<float>(paras.Tp);
 	//posa = K * T_ref / (f0 * (Nr - 1));
-	float posa = chirp_rate * paras.Tp / (paras.fc * (paras.range_num - 1.0f));
+	float posa = chirp_rate * static_cast<float>(paras.Tp) / (paras.fc * (paras.range_num - 1.0f));
 
 	// St=ifft(ifftshift(Sf,2),[],2);
 	cuComplex* d_st = nullptr;
@@ -194,7 +194,7 @@ void mtrc(cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& han
 	cuComplex* d_a = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_a, sizeof(cuComplex) * paras.range_num));
 
-	float constant = chirp_rate * paras.Tp / (2 * paras.fc);
+	float constant = chirp_rate * static_cast<float>(paras.Tp) / (2 * paras.fc);
 	getWandA << <(2 * paras.range_num + block.x - 1) / block.x, block >> > (d_w, d_a, paras.echo_num, paras.range_num, constant, posa);
 	checkCudaErrors(cudaDeviceSynchronize());
 

@@ -19,7 +19,7 @@
 /// <param name="if_hpc"></param>
 /// <param name="if_mtrc"></param>
 /// <returns></returns>
-int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const vec1D_COM_FLOAT& dataW, const vec2D_FLOAT& dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc);
+int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const vec1D_COM_FLT& dataW, const vec2D_DBL& dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc);
 
 
 #endif // ISAR_MAIN_H_

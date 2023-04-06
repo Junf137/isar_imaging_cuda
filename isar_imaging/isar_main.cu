@@ -1,6 +1,6 @@
 ﻿#include "isar_main.cuh"
 
-int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const vec1D_COM_FLOAT& dataW, const vec2D_FLOAT& dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
+int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const vec1D_COM_FLT& dataW, const vec2D_DBL& dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
 {
 	/******************************
 	* Init GPU Device
@@ -24,8 +24,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const
 	CUDAHandle handles(paras.echo_num, paras.range_num);
 
 	// * Overall kernel function configuration
-	dim3 block(256);  // block size
-	dim3 grid_one_echo((paras.range_num + block.x - 1) / block.x);  // grid size
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
 
 	// * GPU memory allocation
 	cuComplex* d_data = nullptr;
@@ -50,12 +49,12 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const
 		std::cout << "---* Starting HPC *---\n";
 
 		// * Retrieving Velocity Data
-		float* h_velocity = new float[paras.echo_num];
-		std::transform(dataNOut.cbegin(), dataNOut.cend(), h_velocity, [](const std::vector<float>& v) {return v[1]; });
+		double* h_velocity = new double[paras.echo_num];
+		std::transform(dataNOut.cbegin(), dataNOut.cend(), h_velocity, [](const std::vector<double>& v) {return v[1]; });
 
-		float* d_velocity = nullptr;
-		checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(float) * paras.echo_num));
-		checkCudaErrors(cudaMemcpy(d_velocity, h_velocity, sizeof(float) * paras.echo_num, cudaMemcpyHostToDevice));
+		double* d_velocity = nullptr;
+		checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
+		checkCudaErrors(cudaMemcpy(d_velocity, h_velocity, sizeof(double) * paras.echo_num, cudaMemcpyHostToDevice));
 
 		auto t_hpc_1 = std::chrono::high_resolution_clock::now();
 
@@ -85,25 +84,27 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const
 	 ******************/
 	std::cout << "---* Starting Get HRRP *---\n";
 
-	// * Generate Hamming Window
-	float* hamming = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&hamming, sizeof(float) * paras.range_num));
-	genHammingVec << <grid_one_echo, block >> > (hamming, paras.range_num);
+	// * Adding Hamming Window
+	float* d_hamming = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
+	genHammingVec << <dim3((paras.range_num + block.x - 1) / block.x), block >> > (d_hamming, paras.range_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// d_data = d_data .* repmat(d_hamming, echo_num, 1)
+	elementwiseMultiplyRep << <dim3((paras.data_num + block.x - 1) / block.x), block >> > (d_hamming, d_data, d_data, paras.range_num, paras.data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * HRRP - High Resolution Range Profile.
-	cuComplex* d_hrrp = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
-
 	auto t_hrrp_1 = std::chrono::high_resolution_clock::now();
 
-	// d_hrrp = fftshift(fft(hamming .* d_data))
-	// d_data = d_data .* repmat(hamming, echo_num, 1)
-	getHRRP(d_hrrp, d_data, hamming, paras, handles);
+	// d_hrrp = fftshift(fft(d_data))
+	cuComplex* d_hrrp = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
+	getHRRP(d_hrrp, d_data, paras, handles);
 
 	auto t_hrrp_2 = std::chrono::high_resolution_clock::now();
 
-	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::microseconds>(t_hrrp_2 - t_hrrp_1).count() << "us\n";
+	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(t_hrrp_2 - t_hrrp_1).count() << "ms\n";
 	std::cout << "---* Get HRRP Over *---\n";
 	std::cout << "************************************\n\n";
 
@@ -120,7 +121,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const
 	auto t_ra_1 = std::chrono::high_resolution_clock::now();
 
 	// * Range Alignment
-	rangeAlignmentParallel(d_data, hamming, paras, handles);
+	rangeAlignmentParallel(d_data, d_hamming, paras, handles);
 
 	auto t_ra_2 = std::chrono::high_resolution_clock::now();
 
@@ -150,19 +151,19 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const
 	std::cout << "---* Starting Phase Compensation *---\n";
 	auto t_pc_1 = std::chrono::high_resolution_clock::now();
 
-	// * Retrieving Azimuth and Pitch Data
-	float* h_azimuth = new float[paras.echo_num];
-	float* h_pitch = new float[paras.echo_num];
-	std::transform(dataNOut.cbegin(), dataNOut.cend(), h_azimuth, [](std::vector<float> v) {return v[2]; });
-	std::transform(dataNOut.cbegin(), dataNOut.cend(), h_pitch, [](std::vector<float> v) {return v[3]; });
+	//// * Retrieving Azimuth and Pitch Data
+	//double* h_azimuth = new double[paras.echo_num];
+	//double* h_pitch = new double[paras.echo_num];
+	//std::transform(dataNOut.cbegin(), dataNOut.cend(), h_azimuth, [](std::vector<double> v) {return v[2]; });
+	//std::transform(dataNOut.cbegin(), dataNOut.cend(), h_pitch, [](std::vector<double> v) {return v[3]; });
 
-	// * Range Variant Phase Compensation [todo] optional
-	rangeVariantPhaseComp(d_data, h_azimuth, h_pitch, paras, handles);
+	//// * Range Variant Phase Compensation [todo] optional
+	//rangeVariantPhaseComp(d_data, h_azimuth, h_pitch, paras, handles);
 
-	delete[] h_azimuth;
-	delete[] h_pitch;
-	h_pitch = nullptr;
-	h_azimuth = nullptr;
+	//delete[] h_azimuth;
+	//delete[] h_pitch;
+	//h_pitch = nullptr;
+	//h_azimuth = nullptr;
 
 	auto t_pc_2 = std::chrono::high_resolution_clock::now();
 
@@ -226,7 +227,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const
 	* Free Allocated Memory & Destroy Pointer
 	**********************/
 	checkCudaErrors(cudaFree(d_data));
-	checkCudaErrors(cudaFree(hamming));
+	checkCudaErrors(cudaFree(d_hamming));
 	checkCudaErrors(cudaFree(d_hrrp));
 
 	return EXIT_SUCCESS;

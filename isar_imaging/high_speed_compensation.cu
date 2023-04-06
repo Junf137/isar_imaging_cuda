@@ -1,47 +1,108 @@
 ﻿#include "high_speed_compensation.cuh"
 
-void highSpeedCompensation(cuComplex* d_data, float* d_velocity, const RadarParameters& paras, const CUDAHandle& handles)
+
+__global__ void genTk2Vec__(double* d_tk2, double Fs, int cols, int len)
 {
-	dim3 block(256);  // block size
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		d_tk2[tid] = (static_cast<double>(tid % cols) / Fs) * (static_cast<double>(tid % cols) / Fs);
+	}
+}
+
+__global__ void diagMulMat(double* d_diag, double* d_data, double* d_res, int cols, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (tid < len) {
+		d_res[tid] = d_diag[static_cast<int>(tid / cols)] * d_data[tid];
+	}
+}
+
+
+void highSpeedCompensation(cuComplex* d_data, double* d_velocity, const RadarParameters& paras, const CUDAHandle& handles)
+{
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
 	dim3 grid((paras.data_num + block.x - 1) / block.x);  // grid size
 	dim3 grid_one_echo((paras.range_num + block.x - 1) / block.x);  // grid size
 
 	// fast time vector
-	float* d_tk_2 = nullptr;  // tk_2 = ([0:N-1]/fs).^2
-	checkCudaErrors(cudaMalloc((void**)&d_tk_2, sizeof(float)* paras.range_num));
-	genTk2Vec << <grid_one_echo, block >> > (d_tk_2, static_cast<float>(paras.Fs), paras.range_num);
+	double* d_tk_2 = nullptr;  // tk_2 = ([0:N-1]/fs).^2
+	checkCudaErrors(cudaMalloc((void**)&d_tk_2, sizeof(double) * paras.range_num));
+	genTk2Vec << <grid_one_echo, block >> > (d_tk_2, static_cast<double>(paras.Fs), paras.range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
+	//double* d_tk_2 = nullptr;  // tk_2 = repmat(([0:N-1]/fs).^2, echo_num, 1)
+	//checkCudaErrors(cudaMalloc((void**)&d_tk_2, sizeof(double) * paras.data_num));
+	//genTk2Vec__ << <grid, block >> > (d_tk_2, static_cast<double>(paras.Fs), paras.range_num, paras.data_num);
+	//checkCudaErrors(cudaDeviceSynchronize());
+
 	// coefficient = - 4 * pi * K / c
-	float chirp_rate = -static_cast<float>(paras.band_width) / paras.Tp;  // extra minus symbol for velocity (depending on different radar signal)
-	float coefficient = 4.0f * PI_h * chirp_rate / LIGHT_SPEED_h;
+	double chirp_rate = static_cast<double>(paras.band_width) / paras.Tp;
+	double coefficient = -4.0 * PI_DBL * chirp_rate / static_cast<double>(LIGHT_SPEED);  // extra minus symbol for velocity direction(depending on different radar signal)
+
+	// converting d_data to double precision
+	cuDoubleComplex* d_data_dbl = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_data_dbl, sizeof(cuDoubleComplex) * paras.data_num));
+	cuComplexFLT2DBL << <grid, block >> > (reinterpret_cast<cuFloatComplex*>(d_data), d_data_dbl, paras.data_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	//ioOperation::dataWriteBack(std::string(DIR_PATH) + "dataW.dat", d_data_dbl, paras.data_num);
+	//ioOperation::dataWriteBack(std::string(DIR_PATH) + "velocity.dat", d_velocity, paras.echo_num);
 
 	// phase = coefficient * v * tk.^2
-	float* d_phase = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_phase, sizeof(float) * paras.data_num));  // new allocated space are set to zero
-	checkCudaErrors(cublasSger(handles.handle, paras.range_num, paras.echo_num, &coefficient, d_tk_2, 1, d_velocity, 1, d_phase, paras.range_num));
+	double* d_phase = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_phase, sizeof(double) * paras.data_num));  // new allocated space are set to zero
+	checkCudaErrors(cublasDger(handles.handle, paras.range_num, paras.echo_num, &coefficient, d_tk_2, 1, d_velocity, 1, d_phase, paras.range_num));
+
+	//diagMulMat << <grid, block >> > (d_velocity, d_tk_2, d_phase, paras.range_num, paras.data_num);
+	//checkCudaErrors(cudaDeviceSynchronize());
+	//checkCudaErrors(cublasDscal(handles.handle, paras.data_num, &coefficient, d_phase, 1));
+
+	//ioOperation::dataWriteBack(std::string(DIR_PATH) + "fai.dat", d_phase, paras.data_num);
 
 	// phi = exp(1j*phase)
-	cuComplex* d_phi = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_phi, sizeof(cuComplex)* paras.data_num));
-	expJ << <grid, block >> > (d_phase, d_phi, paras.data_num);
+	cuDoubleComplex* d_fai = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_fai, sizeof(cuDoubleComplex) * paras.data_num));
+	expJ << <grid, block >> > (d_phase, d_fai, paras.data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// compensation
-	elementwiseMultiply << <grid, block >> > (d_data, d_phi, d_data, paras.data_num);
+	elementwiseMultiply << <grid, block >> > (d_data_dbl, d_fai, d_data_dbl, paras.data_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	//converting d_data back to float precision
+	cuComplexDBL2FLT << <grid, block >> > (reinterpret_cast<cuFloatComplex*>(d_data), d_data_dbl, paras.data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// free gpu allocated space
 	checkCudaErrors(cudaFree(d_phase));
-	checkCudaErrors(cudaFree(d_phi));
+	checkCudaErrors(cudaFree(d_fai));
 	checkCudaErrors(cudaFree(d_tk_2));
 }
 
 
-__global__ void genTk2Vec(float* tk2, float Fs, int len)
+__global__ void genTk2Vec(double* d_tk2, double Fs, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < len) {
-		tk2[tid] = (static_cast<float>(tid) / Fs) * (static_cast<float>(tid) / Fs);
+		d_tk2[tid] = (static_cast<double>(tid) / Fs) * (static_cast<double>(tid) / Fs);
+	}
+}
+
+
+__global__ void cuComplexFLT2DBL(cuFloatComplex* d_data_flt, cuDoubleComplex* d_data_dbl, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		d_data_dbl[tid] = cuComplexFloatToDouble(d_data_flt[tid]);
+	}
+}
+
+
+__global__ void cuComplexDBL2FLT(cuFloatComplex* d_data_flt, cuDoubleComplex* d_data_dbl, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		d_data_flt[tid] = cuComplexDoubleToFloat(d_data_dbl[tid]);
 	}
 }

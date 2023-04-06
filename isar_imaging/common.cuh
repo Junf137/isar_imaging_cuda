@@ -5,7 +5,7 @@
 #define DATA_WRITE_BACK_DATAW
 #define DATA_WRITE_BACK_HPC
 //#define DATA_WRITE_BACK_HRRP
-#define DATA_WRITE_BACK_RA
+//#define DATA_WRITE_BACK_RA
 #define DATA_WRITE_BACK_FINAL
 
 
@@ -49,16 +49,18 @@
 #include <filesystem>
 
 
-typedef std::vector<std::vector<float>> vec2D_FLOAT;
 typedef std::vector<std::vector<int>> vec2D_INT;
-typedef std::vector<std::complex<float>> vec1D_COM_FLOAT;
-typedef std::vector<std::vector<std::complex<float>>> vec2D_COM_FLOAT;
+typedef std::vector<std::vector<float>> vec2D_FLT;
+typedef std::vector<std::vector<double>> vec2D_DBL;
+typedef std::vector<std::complex<float>> vec1D_COM_FLT;
+typedef std::vector<std::vector<std::complex<float>>> vec2D_COM_FLT;
 typedef thrust::complex<float> comThr;
 
 
 constexpr const char* DIR_PATH = "F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\";
-constexpr auto PI_h = 3.14159265358979f;
-constexpr auto LIGHT_SPEED_h = 300000000;
+constexpr auto PI_FLT = 3.14159265358979f;
+constexpr auto PI_DBL = 3.14159265358979;
+constexpr auto LIGHT_SPEED = 300000000;
 constexpr auto RANGE_NUM_CUT = 512;
 constexpr auto FAST_ENTROPY_ITERATION_NUM = 120;
 constexpr auto MAX_THREAD_PER_BLOCK = 1024;
@@ -74,7 +76,7 @@ struct RadarParameters
 	int data_num;
 	long long band_width;
 	long long fc;
-	float Tp;
+	double Tp;
 	int Fs;
 };
 
@@ -104,32 +106,6 @@ public:
 	~CUDAHandle();
 
 };
-
-
-/// <summary>
-/// result_matrix = alpha * vec1 * vec2.' + result_matrix;
-/// for cuComplex number.
-/// </summary>
-/// <param name="handle"> cublas handle </param>
-/// <param name="result_matrix"> multiply result matrix of size m * n (store in column major) </param>
-/// <param name="vec1">  vector of length m </param>
-/// <param name="vec2"> vector of length n </param>
-/// <param name="alpha"> alpha can be in host or device memory </param>
-void vecMulvec(cublasHandle_t handle, cuComplex* result_matrix, thrust::device_vector<comThr>& vec1, thrust::device_vector<comThr>& vec2, const cuComplex& alpha);  // todo: deprecated
-void vecMulvec(cublasHandle_t handle, cuComplex* d_vec1, int len1, cuComplex* d_vec2, int len2, cuComplex* d_res_matrix, const cuComplex& alpha);
-
-
-/// <summary>
-/// result_matrix = alpha * vec1 * vec2.' + result_matrix;
-/// for float number.
-/// </summary>
-/// <param name="handle"> cublas handle </param>
-/// <param name="result_matrix"> multiply result matrix of size m * n (store in column major) </param>
-/// <param name="vec1">  vector of length m </param>
-/// <param name="vec2"> vector of length n </param>
-/// <param name="alpha"> alpha can be in host or device memory </param>
-void vecMulvec(cublasHandle_t handle, float* result_matrix, thrust::device_vector<float>& vec1, thrust::device_vector<float>& vec2, const float& alpha);  // todo: deprecated
-void vecMulvec(cublasHandle_t handle, float* d_vec1, int len1, float* d_vec2, int len2, float* d_res_matrix, const float& alpha);
 
 
 template <typename T>
@@ -260,6 +236,10 @@ __global__ void elementwiseAbs(cuComplex* a, float* abs, int len);
 /// <param name="len"></param>
 /// <returns></returns>
 __global__ void elementwiseMultiply(cuComplex* a, cuComplex* b, cuComplex* c, int len);
+__global__ void elementwiseMultiply(cuDoubleComplex* a, cuDoubleComplex* b, cuDoubleComplex* c, int len);
+__global__ void elementwiseMultiply(float* a, float* b, float* c, int len);
+__global__ void elementwiseMultiply(float* a, cuComplex* b, cuComplex* c, int len);
+__global__ void elementwiseMultiply(float* a, cuComplex* b, float* c, int len);
 
 
 /// <summary>
@@ -284,18 +264,8 @@ __global__ void elementwiseMultiplyConjA(cuComplex* a, cuComplex* b, cuComplex* 
 /// <param name="len_b"></param>
 /// <returns></returns>
 __global__ void elementwiseMultiplyRep(cuComplex* a, cuComplex* b, cuComplex* c, int len_a, int len_b);
-
-
-/// <summary>
-/// Perform element-wise vector multiplication.
-/// c = a .* b
-/// </summary>
-/// <param name="a"></param>
-/// <param name="b"></param>
-/// <param name="c"></param>
-/// <param name="len"></param>
-/// <returns></returns>
-__global__ void elementwiseMultiply(float* a, float* b, float* c, int len);
+__global__ void elementwiseMultiplyRep(cuDoubleComplex* a, cuDoubleComplex* b, cuDoubleComplex* c, int len_a, int len_b);
+__global__ void elementwiseMultiplyRep(float* a, cuComplex* b, cuComplex* c, int len_a, int len_b);
 
 
 /// <summary>
@@ -311,49 +281,13 @@ __global__ void elementwiseDivRep(float* a, float* b, float* c, int len_a, int l
 
 
 /// <summary>
-/// Perform element-wise vector multiplication.
-/// c = a .* b
-/// </summary>
-/// <param name="a"></param>
-/// <param name="b"></param>
-/// <param name="c"></param>
-/// <param name="len"></param>
-/// <returns></returns>
-__global__ void elementwiseMultiply(float* a, cuComplex* b, cuComplex* c, int len);
-
-
-/// <summary>
-/// 
-/// </summary>
-/// <param name="a">vector with length len_a</param>
-/// <param name="b">vector with length len_b</param>
-/// <param name="c">vector with length len_c = len_b</param>
-/// <param name="len_a"></param>
-/// <param name="len_b"></param>
-/// <returns></returns>
-__global__ void elementwiseMultiplyRep(float* a, cuComplex* b, cuComplex* c, int len_a, int len_b);
-
-
-/// <summary>
-/// Perform element-wise vector multiplication.
-/// c = a .* b
-/// </summary>
-/// <param name="a"></param>
-/// <param name="b"></param>
-/// <param name="c"></param>
-/// <param name="len"></param>
-/// <returns></returns>
-__global__ void elementwiseMultiply(float* a, cuComplex* b, float* c, int len);
-
-
-/// <summary>
 /// res = exp(1j * x)
 /// </summary>
 /// <param name="x"></param>
 /// <param name="res"></param>
 /// <param name="len"></param>
 /// <returns></returns>
-__global__ void expJ(float* x, cuComplex* res, int len);
+__global__ void expJ(double* x, cuDoubleComplex* res, int len);
 
 
 /// <summary>
@@ -502,15 +436,6 @@ int nextPow2(int N);
 
 
 /// <summary>
-/// 将array中位于index处的元素置为set_num
-/// </summary>
-/// <param name="arrays"> data array </param>
-/// <param name="index"> index of element to be replaces </param>
-/// <param name="set_num"> replace value </param>
-/// <param name="num_index"> number of element to be replaces </param>
-/// <returns></returns>
-
-/// <summary>
 /// setting d_data's element in position of d_index to value val.
 /// </summary>
 /// <param name="d_data"></param>
@@ -522,14 +447,13 @@ __global__ void setNumInArray(int* d_data, int* d_index, int val, int d_index_le
 
 
 /// <summary>
-/// HRRP
+/// d_hrrp = fftshift(fft(d_data))
 /// </summary>
 /// <param name="d_hrrp"></param>
 /// <param name="d_data"></param>
-/// <param name="hamming"></param>
 /// <param name="paras"></param>
 /// <param name="handles"></param>
-void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, float* hamming, const RadarParameters& paras, const CUDAHandle& handles);
+void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles);
 
 
 /// <summary>
@@ -568,8 +492,8 @@ float interpolate(const std::vector<int>& xData, const std::vector<float>& yData
 
 
 // [flag_data_end DataW_FileSn DataNOut TurnAngleOut] = UniformitySampling(DataN, TurnAngle, sampling_stride, WindowHead, WindowLength)
-int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FLOAT* dataNOut, std::vector<float>* turnAngleOut, \
-	const vec2D_FLOAT& dataN, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len);
+int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
+	const vec2D_DBL& dataN, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len);
 
 
 //function [flag_data_end DataW_FileSn DataNOut TurnAngleOut] = NonUniformitySampling(DataN, RadarParameters, TurnAngle, start, M)
@@ -577,7 +501,6 @@ int nonUniformSamplingFun();
 
 
 /* ioOperation Class */
-
 /// <summary>
 /// Read radar echo signal into CPU memory.
 /// </summary>
@@ -618,7 +541,7 @@ public:
 	/// <param name="frame_len"></param>
 	/// <param name="frame_num"></param>
 	/// <returns></returns>
-	int readKuIFDSALLNBStretch(vec2D_FLOAT* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, int* pulse_num_all, \
+	int readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, int* pulse_num_all, \
 		const RadarParameters& paras, const int& frame_len, const int& frame_num);
 
 	/// <summary>
@@ -636,8 +559,8 @@ public:
 	/// <param name="window_len"></param>
 	/// <param name="nonUniformSampling"></param>
 	/// <returns></returns>
-	int getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_FLOAT* dataNOut, std::vector<float>* turnAngleOut, \
-		const vec2D_FLOAT& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len, const bool& nonUniformSampling);
+	int getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
+		const vec2D_DBL& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len, const bool& nonUniformSampling);
 
 	/// <summary>
 	/// 
@@ -647,7 +570,7 @@ public:
 	/// <param name="stretchIndex"></param>
 	/// <param name="dataWFileSn"></param>
 	/// <returns></returns>
-	int getKuDataStretch(vec1D_COM_FLOAT* dataW, std::vector<int>* frameHeader, \
+	int getKuDataStretch(vec1D_COM_FLT* dataW, std::vector<int>* frameHeader, \
 		const vec2D_INT& stretchIndex, const std::vector<int>& dataWFileSn);
 
 	/// <summary>
@@ -657,34 +580,33 @@ public:
 	/// <param name="data"></param>
 	/// <param name="data_size"></param>
 	/// <returns></returns>
-	static int writeFile(const std::string& outFilePath, const std::complex<float>* data, const  size_t& data_size);
-
-	/// <summary>
-	/// write data reside in CPU memory back to outFilePath
-	/// </summary>
-	/// <param name="outFilePath"></param>
-	/// <param name="data"></param>
-	/// <param name="data_size"></param>
-	/// <returns></returns>
+	static int writeFile(const std::string& outFilePath, const cuComplex* data, const  size_t& data_size);
+	static int writeFile(const std::string& outFilePath, const cuDoubleComplex* data, const  size_t& data_size);
 	static int writeFile(const std::string& outFilePath, const float* data, const  size_t& data_size);
+	static int writeFile(const std::string& outFilePath, const double* data, const  size_t& data_size);
 
 	/// <summary>
 	/// write d_data reside in GPU memory back to outFilePath
 	/// </summary>
+	/// <typeparam name="T"></typeparam>
 	/// <param name="outFilePath"></param>
 	/// <param name="d_data"></param>
 	/// <param name="data_size"></param>
 	/// <returns></returns>
-	static int dataWriteBack(const std::string& outFilePath, const cuComplex* d_data, const  size_t& data_size);
+	template <typename T>
+	static int dataWriteBack(const std::string& outFilePath, const T* d_data, const  size_t& data_size)
+	{
+		T* h_data = new T[data_size];
 
-	/// <summary>
-	/// write d_data reside in GPU memory back to outFilePath
-	/// </summary>
-	/// <param name="outFilePath"></param>
-	/// <param name="d_data"></param>
-	/// <param name="data_size"></param>
-	/// <returns></returns>
-	static int dataWriteBack(const std::string& outFilePath, const float* d_data, const  size_t& data_size);
+		checkCudaErrors(cudaMemcpy(h_data, d_data, sizeof(T) * data_size, cudaMemcpyDeviceToHost));
+
+		ioOperation::writeFile(outFilePath, h_data, data_size);
+
+		delete[] h_data;
+		h_data = nullptr;
+
+		return EXIT_SUCCESS;
+	}
 };
 
 #endif // COMMON_H_

@@ -6,7 +6,7 @@
 //	float scale_ifft = 1 / static_cast<float>(paras.range_num);  // scalar parameter used after cuFFT ifft transformation
 //
 //	// * Kernel thread configuration
-//	dim3 block(256);  // block size
+//	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
 //	dim3 grid((paras.data_num + block.x - 1) / block.x);  // grid size
 //	dim3 grid_one_echo((paras.range_num + block.x - 1) / block.x);
 //
@@ -103,7 +103,7 @@
 void rangeAlignmentParallel(cuComplex* d_data, float* hamming_window, const RadarParameters& paras, const CUDAHandle& handles)
 {
 	// * Kernel thread configuration
-	dim3 block(256);  // block size
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
 	dim3 grid((paras.data_num + block.x - 1) / block.x);  // grid size
 	dim3 grid_one_echo((paras.range_num + block.x - 1) / block.x);
 
@@ -289,7 +289,7 @@ __global__ void genFreqMovParallel(cuComplex* d_freq_mov_vec, float* d_max_idx, 
 	int row_idx = blockIdx.y * stride * 2;
 
 	if (idx < cols) {
-		float val = -2 * PI_h * static_cast<float>(idx) * d_max_idx[row_idx] / static_cast<float>(cols);
+		float val = -2 * PI_FLT * static_cast<float>(idx) * d_max_idx[row_idx] / static_cast<float>(cols);
 		d_freq_mov_vec[row_idx * cols + idx] = make_cuComplex(std::cos(val), std::sin(val));
 	}
 }
@@ -311,7 +311,7 @@ __global__ void genFreqCenteringVec(float* hamming, cuComplex* d_freq_centering_
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < len) {
-		d_freq_centering_vec[tid] = make_cuComplex(hamming[tid] * std::cos(PI_h * static_cast<float>(tid)), 0.0f);  // todo: __constant__ PI_h variable ???
+		d_freq_centering_vec[tid] = make_cuComplex(hamming[tid] * std::cos(PI_FLT * static_cast<float>(tid)), 0.0f);  // todo: __constant__ PI_FLT variable ???
 	}
 }
 
@@ -321,7 +321,7 @@ void getCorrelation(float* d_vec_corr, float* d_vec_a, float* d_vec_b, int len, 
 	// * configuring data layout 
 	int fft_len = static_cast<int>(len / 2) + 1;
 
-	dim3 block(256);
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);
 	dim3 grid((len + block.x - 1) / block.x);
 	dim3 grid_fft((fft_len + block.x - 1) / block.x);
 
@@ -378,7 +378,7 @@ __global__ void genFreqMovVec(cuComplex* d_freq_mov_vec, float shit_num, int len
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < len) {
-		float val = -2 * PI_h * static_cast<float>(tid) * shit_num / static_cast<float>(len);
+		float val = -2 * PI_FLT * static_cast<float>(tid) * shit_num / static_cast<float>(len);
 		d_freq_mov_vec[tid] = make_cuComplex(std::cos(val), std::sin(val));
 	}
 }
@@ -386,7 +386,7 @@ __global__ void genFreqMovVec(cuComplex* d_freq_mov_vec, float shit_num, int len
 
 void HRRPCenter(cuComplex* d_data, const int& inter_length, const RadarParameters& paras, const CUDAHandle& handles)
 {
-	dim3 block(256);  // block size
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
 	dim3 grid((paras.data_num + block.x - 1) / block.x);  // grid size
 	dim3 grid_one_echo((paras.range_num + block.x - 1) / block.x);
 
@@ -489,7 +489,7 @@ void circshift(T* d_data, int frag_len, int shift, int len)
 	T* d_data_temp = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_data_temp, sizeof(T) * len));
 
-	dim3 block(256);  // block size
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
 	dim3 grid((len + block.x - 1) / block.x);  // grid size
 	circShiftKernel << <grid, block >> > (d_data, d_data_temp, frag_len, shift, len);
 	checkCudaErrors(cudaDeviceSynchronize());
@@ -512,7 +512,7 @@ __global__ void circShiftKernel(T* d_in, T* d_out, int frag_len, int shift_num, 
 
 void circshiftFreq(cuComplex* d_data, int frag_len, float shift, int len, cublasHandle_t handle, cufftHandle plan_all_echo_c2c)
 {
-	dim3 block(256);
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);
 	dim3 grid_one_frag((frag_len + block.x - 1) / block.x);  // grid size
 	dim3 grid((len + block.x - 1) / block.x);  // grid size
 

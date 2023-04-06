@@ -37,7 +37,7 @@ __global__ void diagMulMat(cuComplex* d_diag, cuComplex* d_data, cuComplex* d_re
 /// <param name="h_azimuth"></param>
 /// <param name="h_pitch"></param>
 /// <param name="handle"></param>
-void rangeVariantPhaseComp(cuComplex* d_data, float* h_azimuth, float* h_pitch, const RadarParameters& paras, const CUDAHandle& handles);
+//void rangeVariantPhaseComp(cuComplex* d_data, double* h_azimuth, double* h_pitch, const RadarParameters& paras, const CUDAHandle& handles);
 
 
 /// <summary>

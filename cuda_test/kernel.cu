@@ -7,6 +7,7 @@
 #include <cublas_v2.h>
 #include <cufft.h>
 #include <complex>
+#include <type_traits>
 
 #include <cuComplex.h>
 #include <thrust/device_ptr.h>
@@ -303,154 +304,209 @@ __global__ void getWandA(cuComplex* d_w, cuComplex* d_a, int echo_num, int range
     }
 }
 
-//__global__ void testKernle(cuComplex* d_data)
+
+//template <typename T>
+//void printType(const T* t)
 //{
-//    int tid = threadIdx.x;
-//
-//    int kk = tid;
-//    int kk2 = kk * kk / 2;
-//    comThr tmp = thrust::pow(comThr(d_data[tid].x, d_data[tid].y), static_cast<float>(2));
-//    d_data[tid] = make_cuComplex(tmp.real(), tmp.imag());
-//
-//}
-//
-//void test()
-//{
-//    int data_num = 5;
-//    std::complex<float>* h_data = new std::complex<float>[data_num];
-//    for (int i = 0; i < data_num; ++i) {
-//        h_data[i] = std::complex<float>(static_cast<float>(i + 1), 0.0f);
+//    if (std::is_same<T, const float*>::value) {
+//        std::cout << "float*\n";
 //    }
-//    cuComplex* d_data = nullptr;
-//    checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * data_num));
-//    checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(cuComplex) * data_num, cudaMemcpyHostToDevice));
-//    std::cout << "d_data:" << std::endl;
-//    dDataDisp(d_data, 1, data_num);
-//
-//    testKernle << <1, data_num >> > (d_data);
-//    checkCudaErrors(cudaDeviceSynchronize());
-//
-//    dDataDisp(d_data, 1, data_num);
-//
-//
+//    else if (std::is_same<T, const double*>::value) {
+//		std::cout << "double\n";
+//    }
+//    else if (std::is_same<T, const std::complex<float>*>::value) {
+//		std::cout << "std::complex<float>*\n";
+//    }
+//    else if (std::is_same<T, const std::complex<double>*>::value) {
+//        std::cout << "std::complex<double>*\n";
+//    }
+//    else if (std::is_same<T, const cuComplex*>::value) {
+//        std::cout << "cuComplex*\n";
+//    }
+//    else if (std::is_same<T, const cuDoubleComplex*>::value) {
+//        std::cout << "cuDoubleComplex*\n";
+//    }
 //}
+
+template <typename T>
+void printType(const T* t)
+{
+    //using U = typename std::remove_const<T>::type; // Remove const qualifier from T
+    if (std::is_same<T, float>::value) {
+        std::cout << "float*\n";
+        std::cout << static_cast<float>(t[0]) << std::endl;
+    }
+    else if (std::is_same<T, double>::value) {
+        std::cout << "double*\n";
+    }
+    else if (std::is_same<T, cuComplex>::value) {
+        std::cout << "cuComplex*\n";
+    }
+    else if (std::is_same<T, cuDoubleComplex>::value) {
+        std::cout << "cuDoubleComplex*\n";
+    }
+}
+
+
+//template <typename T>
+//void printType(const T* t)
+//{
+//    using U = typename std::remove_pointer<T>::type; // Remove pointer qualifier from T
+//    if (std::is_same<U, float>::value) {
+//        std::cout << "float*: " << std::endl;
+//        //std::cout << "float*: " << *(t + 2) << std::endl;
+//    }
+//    else if (std::is_same<U, double>::value) {
+//        std::cout << "double*: " << std::endl;
+//    }
+//    else if (std::is_same<U, std::complex<float>>::value) {
+//        std::cout << "std::complex<float>*\n";
+//    }
+//    else if (std::is_same<U, std::complex<double>>::value) {
+//        std::cout << "std::complex<double>*\n";
+//    }
+//    else if (std::is_same<U, cuComplex>::value) {
+//        std::cout << "cuComplex*\n";
+//    }
+//    else if (std::is_same<U, cuDoubleComplex>::value) {
+//        std::cout << "cuDoubleComplex*\n";
+//    }
+//}
+
 
 int main(int argc, char** argv)
 {
-    int echo_num = 2;
-    int range_num = 6;
-    int data_num = echo_num * range_num;
-    float scale_ifft_range = 1.0f / range_num;
-    float scale_ifft_echo = 1.0f / echo_num;
-    dim3 block(256);
+    float* h_f = new float[3];
+    h_f[0] = 0.0f;
+    h_f[1] = 1.0f;
+    h_f[2] = 2.0f;
+    double* h_d = nullptr;
 
-    cublasHandle_t handle;
-    checkCudaErrors(cublasCreate(&handle));
+    cuComplex* d_com_f = nullptr;
+    cuDoubleComplex* d_com_d = nullptr;
 
-    cufftHandle plan_all_echo_c2c_cut;
-	checkCudaErrors(cufftPlan1d(&plan_all_echo_c2c_cut, range_num, CUFFT_C2C, echo_num));
+    printType<float>(h_f);
+    printType<double>(h_d);
+    printType<cuComplex>(d_com_f);
+    printType<cuDoubleComplex>(d_com_d);
 
-    cufftHandle plan_all_range_c2c;
-    cufftHandle plan_all_range_c2c_czt;
-    int batch = range_num;
-    int rank = 1;
-    int n[] = { echo_num };
-    int inembed[] = { echo_num };
-    int onembed[] = { echo_num };
-    int istride = range_num;
-    int ostride = range_num;
-    int idist = 1;
-    int odist = 1;
-    checkCudaErrors(cufftPlanMany(&plan_all_range_c2c, rank, n, inembed, istride, idist, onembed, ostride, odist, CUFFT_C2C, batch));
+    
 
-    int fft_len = nextPow2(2 * echo_num - 1);
-    n[0] = fft_len;
-    inembed[0] = fft_len;
-    onembed[0] = fft_len;
-    checkCudaErrors(cufftPlanMany(&plan_all_range_c2c_czt, rank, n, inembed, istride, idist, onembed, ostride, odist, CUFFT_C2C, batch));
 
-    // initializing all element of d_data
-    std::complex<float>* h_data = new std::complex<float>[data_num];
-    for (int i = 0; i < data_num; ++i) {
-        h_data[i] = std::complex<float>(static_cast<float>(i + 1), 0.0f);
-    }
-    cuComplex* d_data = nullptr;
-    checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * data_num));
-    checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(cuComplex) * data_num, cudaMemcpyHostToDevice));
-    cuComplex* d_st = nullptr;
-    checkCudaErrors(cudaMalloc((void**)&d_st, sizeof(cuComplex) * data_num));
-    checkCudaErrors(cudaMemcpy(d_st, d_data, sizeof(cuComplex) * data_num, cudaMemcpyDeviceToDevice));
-    // print d_data
-    std::cout << "d_data:" << std::endl;
-    dDataDisp(d_data, echo_num, range_num);
+ //   int echo_num = 2;
+ //   int range_num = 6;
+ //   int data_num = echo_num * range_num;
+ //   float scale_ifft_range = 1.0f / range_num;
+ //   float scale_ifft_echo = 1.0f / echo_num;
+ //   dim3 block(256);
 
-    // ifftshift
-    ifftshiftRows << <dim3(((range_num / 2) + block.x - 1) / block.x, echo_num), block >> > (d_st, range_num);
-    checkCudaErrors(cudaDeviceSynchronize());
-    // ifft
-    checkCudaErrors(cufftExecC2C(plan_all_echo_c2c_cut, d_st, d_st, CUFFT_INVERSE));
-    checkCudaErrors(cublasCsscal(handle, data_num, &scale_ifft_range, d_st, 1));
-    // print d_data
-    std::cout << "d_st:" << std::endl;
-    dDataDisp(d_st, echo_num, range_num);
+ //   cublasHandle_t handle;
+ //   checkCudaErrors(cublasCreate(&handle));
 
-    // * CZT
-    // calculating w and a vector for each range
-    cuComplex* d_w = nullptr;
-    checkCudaErrors(cudaMalloc((void**)&d_w, sizeof(cuComplex) * range_num));
-    cuComplex* d_a = nullptr;
-    checkCudaErrors(cudaMalloc((void**)&d_a, sizeof(cuComplex) * range_num));
+ //   cufftHandle plan_all_echo_c2c_cut;
+	//checkCudaErrors(cufftPlan1d(&plan_all_echo_c2c_cut, range_num, CUFFT_C2C, echo_num));
 
-    float constant = 0.0601f;
-    float posa = 2.2579e-04f;
-    getWandA << <(2 * range_num + block.x - 1) / block.x, block >> > (d_w, d_a, echo_num, range_num, constant, posa);
-    checkCudaErrors(cudaDeviceSynchronize());
-    std::cout << "d_w:" << std::endl;
-    dDataDisp(d_w, 1, range_num);
-    std::cout << "d_a:" << std::endl;
-    dDataDisp(d_a, 1, range_num);
+ //   cufftHandle plan_all_range_c2c;
+ //   cufftHandle plan_all_range_c2c_czt;
+ //   int batch = range_num;
+ //   int rank = 1;
+ //   int n[] = { echo_num };
+ //   int inembed[] = { echo_num };
+ //   int onembed[] = { echo_num };
+ //   int istride = range_num;
+ //   int ostride = range_num;
+ //   int idist = 1;
+ //   int odist = 1;
+ //   checkCudaErrors(cufftPlanMany(&plan_all_range_c2c, rank, n, inembed, istride, idist, onembed, ostride, odist, CUFFT_C2C, batch));
 
-    // CZT
-    // nfft = 2^nextpow2(m+k-1);
-    float scale_ifft = 1.0f / fft_len;
-    int data_num_fft = fft_len * range_num;
-    int ww_len = 2 * echo_num - 1;  // ww length for each range: 2 * echo_num - 1
-    int y_len = echo_num;  // y length for each range: echo_num
+ //   int fft_len = nextPow2(2 * echo_num - 1);
+ //   n[0] = fft_len;
+ //   inembed[0] = fft_len;
+ //   onembed[0] = fft_len;
+ //   checkCudaErrors(cufftPlanMany(&plan_all_range_c2c_czt, rank, n, inembed, istride, idist, onembed, ostride, odist, CUFFT_C2C, batch));
 
-    cuComplex* d_ww = nullptr;
-    checkCudaErrors(cudaMalloc((void**)&d_ww, sizeof(cuComplex) * data_num_fft));
-    thrust::device_ptr<comThr> thr_ww = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_ww));
-    genWW << <dim3(range_num, (fft_len + block.x - 1) / block.x), block >> > (d_ww, d_w, echo_num, range_num, ww_len, fft_len);
-    checkCudaErrors(cudaDeviceSynchronize());
+ //   // initializing all element of d_data
+ //   std::complex<float>* h_data = new std::complex<float>[data_num];
+ //   for (int i = 0; i < data_num; ++i) {
+ //       h_data[i] = std::complex<float>(static_cast<float>(i + 1), 0.0f);
+ //   }
+ //   cuComplex* d_data = nullptr;
+ //   checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * data_num));
+ //   checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(cuComplex) * data_num, cudaMemcpyHostToDevice));
+ //   cuComplex* d_st = nullptr;
+ //   checkCudaErrors(cudaMalloc((void**)&d_st, sizeof(cuComplex) * data_num));
+ //   checkCudaErrors(cudaMemcpy(d_st, d_data, sizeof(cuComplex) * data_num, cudaMemcpyDeviceToDevice));
+ //   // print d_data
+ //   std::cout << "d_data:" << std::endl;
+ //   dDataDisp(d_data, echo_num, range_num);
 
-    cuComplex* d_y = nullptr;
-    checkCudaErrors(cudaMalloc((void**)&d_y, sizeof(cuComplex) * data_num_fft));
-    gety << <dim3(range_num, (fft_len + block.x - 1) / block.x), block >> > (d_y, d_a, d_ww, d_st, echo_num, range_num, y_len, fft_len);
-    checkCudaErrors(cudaDeviceSynchronize());
+ //   // ifftshift
+ //   ifftshiftRows << <dim3(((range_num / 2) + block.x - 1) / block.x, echo_num), block >> > (d_st, range_num);
+ //   checkCudaErrors(cudaDeviceSynchronize());
+ //   // ifft
+ //   checkCudaErrors(cufftExecC2C(plan_all_echo_c2c_cut, d_st, d_st, CUFFT_INVERSE));
+ //   checkCudaErrors(cublasCsscal(handle, data_num, &scale_ifft_range, d_st, 1));
+ //   // print d_data
+ //   std::cout << "d_st:" << std::endl;
+ //   dDataDisp(d_st, echo_num, range_num);
 
-    // fft
-    checkCudaErrors(cufftExecC2C(plan_all_range_c2c_czt, d_y, d_y, CUFFT_FORWARD));
+ //   // * CZT
+ //   // calculating w and a vector for each range
+ //   cuComplex* d_w = nullptr;
+ //   checkCudaErrors(cudaMalloc((void**)&d_w, sizeof(cuComplex) * range_num));
+ //   cuComplex* d_a = nullptr;
+ //   checkCudaErrors(cudaMalloc((void**)&d_a, sizeof(cuComplex) * range_num));
 
-    cuComplex* d_ww_ = nullptr;
-    checkCudaErrors(cudaMalloc((void**)&d_ww_, sizeof(cuComplex) * data_num_fft));
-    thrust::device_ptr<comThr> thr_ww_ = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_ww_));
-    thrust::transform(thrust::device, thr_ww, thr_ww + data_num_fft - (fft_len - ww_len) * range_num, thr_ww_, \
-        []__host__ __device__(const comThr & x) { return thrust::pow(x, -1); });
+ //   float constant = 0.0601f;
+ //   float posa = 2.2579e-04f;
+ //   getWandA << <(2 * range_num + block.x - 1) / block.x, block >> > (d_w, d_a, echo_num, range_num, constant, posa);
+ //   checkCudaErrors(cudaDeviceSynchronize());
+ //   std::cout << "d_w:" << std::endl;
+ //   dDataDisp(d_w, 1, range_num);
+ //   std::cout << "d_a:" << std::endl;
+ //   dDataDisp(d_a, 1, range_num);
 
-    checkCudaErrors(cufftExecC2C(plan_all_range_c2c_czt, d_ww_, d_ww_, CUFFT_FORWARD));
+ //   // CZT
+ //   // nfft = 2^nextpow2(m+k-1);
+ //   float scale_ifft = 1.0f / fft_len;
+ //   int data_num_fft = fft_len * range_num;
+ //   int ww_len = 2 * echo_num - 1;  // ww length for each range: 2 * echo_num - 1
+ //   int y_len = echo_num;  // y length for each range: echo_num
 
-    elementwiseMultiply << <(data_num_fft + block.x - 1) / block.x, block >> > (d_y, d_ww_, d_y, data_num_fft);
-    checkCudaErrors(cudaDeviceSynchronize());
+ //   cuComplex* d_ww = nullptr;
+ //   checkCudaErrors(cudaMalloc((void**)&d_ww, sizeof(cuComplex) * data_num_fft));
+ //   thrust::device_ptr<comThr> thr_ww = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_ww));
+ //   genWW << <dim3(range_num, (fft_len + block.x - 1) / block.x), block >> > (d_ww, d_w, echo_num, range_num, ww_len, fft_len);
+ //   checkCudaErrors(cudaDeviceSynchronize());
 
-    // ifft
-    checkCudaErrors(cufftExecC2C(plan_all_range_c2c_czt, d_y, d_y, CUFFT_INVERSE));
-    checkCudaErrors(cublasCsscal(handle, data_num_fft, &scale_ifft, d_y, 1));
-    std::cout << "d_y(ifft):" << std::endl;
-    dDataDisp(d_y, fft_len, range_num);
+ //   cuComplex* d_y = nullptr;
+ //   checkCudaErrors(cudaMalloc((void**)&d_y, sizeof(cuComplex) * data_num_fft));
+ //   gety << <dim3(range_num, (fft_len + block.x - 1) / block.x), block >> > (d_y, d_a, d_ww, d_st, echo_num, range_num, y_len, fft_len);
+ //   checkCudaErrors(cudaDeviceSynchronize());
 
-    cuComplex* d_czt = d_st;
-    getCZTOut << <dim3(range_num, (echo_num + block.x - 1) / block.x), block >> > (d_czt, d_y, d_ww, echo_num);
-    checkCudaErrors(cudaDeviceSynchronize());
-    std::cout << "d_czt:" << std::endl;
-    dDataDisp(d_czt, echo_num, range_num);
+ //   // fft
+ //   checkCudaErrors(cufftExecC2C(plan_all_range_c2c_czt, d_y, d_y, CUFFT_FORWARD));
+
+ //   cuComplex* d_ww_ = nullptr;
+ //   checkCudaErrors(cudaMalloc((void**)&d_ww_, sizeof(cuComplex) * data_num_fft));
+ //   thrust::device_ptr<comThr> thr_ww_ = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_ww_));
+ //   thrust::transform(thrust::device, thr_ww, thr_ww + data_num_fft - (fft_len - ww_len) * range_num, thr_ww_, \
+ //       []__host__ __device__(const comThr & x) { return thrust::pow(x, -1); });
+
+ //   checkCudaErrors(cufftExecC2C(plan_all_range_c2c_czt, d_ww_, d_ww_, CUFFT_FORWARD));
+
+ //   elementwiseMultiply << <(data_num_fft + block.x - 1) / block.x, block >> > (d_y, d_ww_, d_y, data_num_fft);
+ //   checkCudaErrors(cudaDeviceSynchronize());
+
+ //   // ifft
+ //   checkCudaErrors(cufftExecC2C(plan_all_range_c2c_czt, d_y, d_y, CUFFT_INVERSE));
+ //   checkCudaErrors(cublasCsscal(handle, data_num_fft, &scale_ifft, d_y, 1));
+ //   std::cout << "d_y(ifft):" << std::endl;
+ //   dDataDisp(d_y, fft_len, range_num);
+
+ //   cuComplex* d_czt = d_st;
+ //   getCZTOut << <dim3(range_num, (echo_num + block.x - 1) / block.x), block >> > (d_czt, d_y, d_ww, echo_num);
+ //   checkCudaErrors(cudaDeviceSynchronize());
+ //   std::cout << "d_czt:" << std::endl;
+ //   dDataDisp(d_czt, echo_num, range_num);
 }
