@@ -2,10 +2,12 @@
 #define COMMON_H_
 
 
-#define DATA_WRITE_BACK_DATAW
-#define DATA_WRITE_BACK_HPC
+//#define DATA_WRITE_BACK_DATAW
+//#define DATA_WRITE_BACK_HPC
 //#define DATA_WRITE_BACK_HRRP
-//#define DATA_WRITE_BACK_RA
+#define DATA_WRITE_BACK_RA
+//#define DATA_WRITE_BACK_PC
+//#define DATA_WRITE_BACK_MTRC
 #define DATA_WRITE_BACK_FINAL
 
 
@@ -189,16 +191,6 @@ __global__ void ifftshiftCols(T* d_data, int rows)
 /// <param name="max_idx"></param>
 /// <param name="max"></param>
 void getMax(cublasHandle_t handle, float* d_vec, int len, int* h_max_idx, float* h_max_val);
-
-
-/// <summary>
-/// 
-/// </summary>
-/// <param name="handle"></param>
-/// <param name="d_vec"></param>
-/// <param name="len"></param>
-/// <param name="h_max_idx"></param>
-/// <param name="h_max_val"></param>
 void getMax(cublasHandle_t handle, cuComplex* d_vec, int len, int* h_max_idx, cuComplex* h_max_val);
 
 
@@ -223,7 +215,14 @@ void getMin(cublasHandle_t handle, float* d_vec, int len, int* min_idx, float* m
 __global__ void elementwiseAbs(cuComplex* a, float* abs, int len);
 
 
-//__global__ void elementwiseMean(cuComplex* a, cuComplex* b, cuComplex* c, int len);
+/// <summary>
+/// d_data_conj = conj(d_data);
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="d_data_conj"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void elementwiseConj(cuComplex* d_data, cuComplex* d_data_conj, int len);
 
 
 /// <summary>
@@ -239,7 +238,6 @@ __global__ void elementwiseMultiply(cuComplex* a, cuComplex* b, cuComplex* c, in
 __global__ void elementwiseMultiply(cuDoubleComplex* a, cuDoubleComplex* b, cuDoubleComplex* c, int len);
 __global__ void elementwiseMultiply(float* a, float* b, float* c, int len);
 __global__ void elementwiseMultiply(float* a, cuComplex* b, cuComplex* c, int len);
-__global__ void elementwiseMultiply(float* a, cuComplex* b, float* c, int len);
 
 
 /// <summary>
@@ -269,6 +267,17 @@ __global__ void elementwiseMultiplyRep(float* a, cuComplex* b, cuComplex* c, int
 
 
 /// <summary>
+/// c = b ./ a
+/// </summary>
+/// <param name="a"></param>
+/// <param name="b"></param>
+/// <param name="c"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void elementwiseDiv(float* a, cuComplex* b, cuComplex* c, int len);
+
+
+/// <summary>
 /// c = b ./ repmat(a, (len_b/len_a), 1)
 /// </summary>
 /// <param name="a"> len_a </param>
@@ -278,6 +287,21 @@ __global__ void elementwiseMultiplyRep(float* a, cuComplex* b, cuComplex* c, int
 /// <param name="len_b"></param>
 /// <returns></returns>
 __global__ void elementwiseDivRep(float* a, float* b, float* c, int len_a, int len_b);
+
+
+/// <summary>
+/// d_res = diag(d_diag) * d_data
+/// d_diag is a vector of size len / cols.
+/// </summary>
+/// <param name="d_diag"></param>
+/// <param name="d_data"></param>
+/// <param name="d_res"></param>
+/// <param name="cols"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void diagMulMat(cuComplex* d_diag, cuComplex* d_data, cuComplex* d_res, int cols, int len);
+__global__ void diagMulMat(float* d_diag, cuComplex* d_data, cuComplex* d_res, int cols, int len);
+__global__ void diagMulMat(double* d_diag, double* d_data, double* d_res, int cols, int len);
 
 
 /// <summary>
@@ -310,18 +334,6 @@ __global__ void genHammingVec(float* hamming, int len);
 //__global__ void getMaxIdx(const T* data, const int dsize, int* result);
 
 
-///// <summary>
-///// get maximum value of every column
-///// Reference:  https://stackoverflow.com/questions/17698969/determining-the-least-element-and-its-position-in-each-matrix-column-with-cuda-t
-///// </summary>
-///// <param name="c"> data set, column is not coalescing </param>
-///// <param name="maxval"> vector to store maximum value </param>
-///// <param name="maxidx"> vector to store maximum value's index </param>
-///// <param name="row"> number of rows </param>
-///// <param name="col"> number of columns ></param>
-//void getMaxInColumns(thrust::device_vector<float>& c, thrust::device_vector<float>& maxval, thrust::device_vector<int>& maxidx, int row, int col);
-
-
 /// <summary>
 /// Getting the max element of every single column in matrix d_data.
 /// Each block is responsible for the calculation of a single column.
@@ -338,33 +350,6 @@ __global__ void genHammingVec(float* hamming, int len);
 /// <param name="cols"></param>
 /// <returns></returns>
 __global__ void maxCols(float* d_data, float* d_max_clos, int rows, int cols);
-
-
-///// <summary>
-///// Expanding index.
-///// Expanding the number of every element in vector starting from first2 to the corresponding value in vector starting from first1 and ending at end1.
-///// first {2,2,2}. second {1,2,3}. output {1,1,2,2,3,3}.
-///// </summary>
-///// <typeparam name="InputIterator1"></typeparam>
-///// <typeparam name="InputIterator2"></typeparam>
-///// <typeparam name="OutputIterator"></typeparam>
-///// <param name="first1"></param>
-///// <param name="last1"></param>
-///// <param name="first2"></param>
-///// <param name="output"></param>
-///// <returns></returns>
-//template <typename InputIterator1, typename InputIterator2, typename OutputIterator>
-//OutputIterator expand(InputIterator1 first1, InputIterator1 last1, InputIterator2 first2, OutputIterator output);
-//
-//
-///// <summary>
-///// Calculating summation of each row of matrix d_data alone the second dimension.
-///// </summary>
-///// <param name="d_data"></param>
-///// <param name="d_sum_rows"></param>
-///// <param name="row"></param>
-///// <param name="col"></param>
-//void sumRows_thr(cuComplex* d_data, cuComplex* d_sum_rows, const int& row, const int& col);
 
 
 /// <summary>
@@ -400,6 +385,7 @@ __global__ void sumCols(float* d_data, float* sum_clos, int rows, int cols);
 /// <param name="sum_rows"></param>
 /// <returns></returns>
 __global__ void sumRows(cuComplex* d_data, cuComplex* sum_rows, int rows, int cols);
+__global__ void sumRows(float* d_data, float* d_sum_rows, int rows, int cols);
 
 
 /// <summary>

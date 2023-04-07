@@ -1,15 +1,66 @@
 #include "mtrc.cuh"
 
 
-/// <summary>
-/// Kernel configuration requirement:
-/// (1) block_number == {paras.rang_num, (fft_len + block.x - 1) / block.x}
-/// (2) thread_per_block == {256, ...}
-/// </summary>
-/// <param name="d_ww"></param>
-/// <param name="d_w"></param>
-/// <param name="ww_len"></param>
-/// <returns></returns>
+void mtrc(cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles)
+{
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);
+	float scale_ifft_range = 1 / static_cast<float>(paras.range_num);
+	float scale_ifft_echo = 1 / static_cast<float>(paras.echo_num);
+
+	float chirp_rate = static_cast<float>(paras.band_width) / static_cast<float>(paras.Tp);
+	//posa = K * T_ref / (f0 * (Nr - 1));
+	float posa = chirp_rate * static_cast<float>(paras.Tp) / (paras.fc * (paras.range_num - 1.0f));
+
+	// St=ifft(ifftshift(Sf,2),[],2);
+	cuComplex* d_st = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_st, sizeof(cuComplex) * paras.data_num));
+	checkCudaErrors(cudaMemcpy(d_st, d_data, sizeof(cuComplex) * paras.data_num, cudaMemcpyDeviceToDevice));
+	// ifftshift
+	ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_st, paras.range_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+	// ifft
+	checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c_cut, d_st, d_st, CUFFT_INVERSE));
+	checkCudaErrors(cublasCsscal(handles.handle, paras.data_num, &scale_ifft_range, d_st, 1));
+
+	// * CZT
+	// calculating w and a vector for each range
+	cuComplex* d_w = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_w, sizeof(cuComplex) * paras.range_num));
+	cuComplex* d_a = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_a, sizeof(cuComplex) * paras.range_num));
+
+	float constant = chirp_rate * static_cast<float>(paras.Tp) / (2 * paras.fc);
+	getWandA << <(2 * paras.range_num + block.x - 1) / block.x, block >> > (d_w, d_a, paras.echo_num, paras.range_num, constant, posa);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	cuComplex* d_czt = d_data;
+	cztRange(d_czt, d_st, d_w, d_a, paras.echo_num, paras.range_num, handles);
+	ifftshiftCols << <dim3(paras.range_num, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_czt, paras.echo_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// ifft
+	checkCudaErrors(cufftExecC2C(handles.plan_all_range_c2c, d_czt, d_czt, CUFFT_INVERSE));
+	checkCudaErrors(cublasCsscal(handles.handle, paras.data_num, &scale_ifft_echo, d_czt, 1));
+	// ifftshift
+	ifftshiftCols << <dim3(paras.range_num, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_czt, paras.echo_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// fft
+	checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c_cut, d_czt, d_czt, CUFFT_FORWARD));
+	// fftshift
+	ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_czt, paras.range_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+	// fftshift
+	ifftshiftCols << <dim3(paras.range_num, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_czt, paras.echo_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// * Free allocated memory
+	checkCudaErrors(cudaFree(d_st));
+	checkCudaErrors(cudaFree(d_w));
+	checkCudaErrors(cudaFree(d_a));
+}
+
+
 __global__ void genWW(cuComplex* d_ww, cuComplex* d_w, int echo_num, int range_num, int ww_len, int fft_len)
 {
 	int bidx = blockIdx.x;
@@ -27,18 +78,6 @@ __global__ void genWW(cuComplex* d_ww, cuComplex* d_w, int echo_num, int range_n
 }
 
 
-/// <summary>
-/// Kernel configuration requirement:
-/// (1) block_number == {paras.rang_num, (fft_len + block.x - 1) / block.x}
-/// (2) thread_per_block == {256, ...}
-/// </summary>
-/// <param name="d_y"></param>
-/// <param name="d_ww"></param>
-/// <param name="echo"></param>
-/// <param name="echo_num"></param>
-/// <param name="ww_len"></param>
-/// <param name="fft_len"></param>
-/// <returns></returns>
 __global__ void gety(cuComplex* d_y, cuComplex* d_a, cuComplex* d_ww, cuComplex* d_data, int echo_num, int range_num, int y_len, int fft_len)
 {
 	int bidx = blockIdx.x;
@@ -55,15 +94,6 @@ __global__ void gety(cuComplex* d_y, cuComplex* d_a, cuComplex* d_ww, cuComplex*
 }
 
 
-/// <summary>
-/// Kernel configuration requirement:
-/// (1) block_number == {paras.rang_num, (paras.echo_num + block.x - 1) / block.x}
-/// (2) thread_per_block == {256, ...}
-/// </summary>
-/// <param name="d_czt"></param>
-/// <param name="d_ifft"></param>
-/// <param name="d_ww"></param>
-/// <returns></returns>
 __global__ void getCZTOut(cuComplex* d_czt, cuComplex* d_ifft, cuComplex* d_ww, int echo_num)
 {
 	int bidx = blockIdx.x;
@@ -77,15 +107,6 @@ __global__ void getCZTOut(cuComplex* d_czt, cuComplex* d_ifft, cuComplex* d_ww, 
 }
 
 
-/// <summary>
-/// Applying Chirp-z transform transformation to each range.
-/// The element of each separate Z-Transform equal to the number of element in each range.
-/// </summary>
-/// <param name="d_data"> echo_num * range_num </param>
-/// <param name="echo_num"></param>
-/// <param name="range_num"></param>
-/// <param name="d_w"> vector of length range_num </param>
-/// <param name="d_a"> vector of length range_num </param>
 void cztRange(cuComplex* d_czt, cuComplex* d_data, cuComplex* d_w, cuComplex* d_a, const int& echo_num, const int& range_num, const CUDAHandle& handles)
 {
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);
@@ -136,16 +157,6 @@ void cztRange(cuComplex* d_czt, cuComplex* d_data, cuComplex* d_w, cuComplex* d_
 }
 
 
-/// <summary>
-/// 
-/// </summary>
-/// <param name="d_w"></param>
-/// <param name="d_a"></param>
-/// <param name="echo_num"></param>
-/// <param name="range_num"></param>
-/// <param name="constant"> K * 0.5 * T_ref / f0 </param>
-/// <param name="posa"></param>
-/// <returns></returns>
 __global__ void getWandA(cuComplex* d_w, cuComplex* d_a, int echo_num, int range_num, float constant, float posa)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -155,7 +166,7 @@ __global__ void getWandA(cuComplex* d_w, cuComplex* d_a, int echo_num, int range
 		//w = exp( -1j * 2 * pi * (1 - K * 0.5 * T_ref / f0 + posa * (n - 1)) / Na );
 		float tmp = -2 * PI_FLT * (1 - constant + posa * tid) / echo_num;
 		d_w[tid] = make_cuComplex(std::cos(tmp), std::sin(tmp));
- 	}
+	}
 	else if (tid < 2 * range_num) {
 		// calculating a vector
 		//a = exp( -1j * pi * (1 - K * 0.5 * T_ref / f0 + posa * (n - 1)) );
@@ -163,67 +174,4 @@ __global__ void getWandA(cuComplex* d_w, cuComplex* d_a, int echo_num, int range
 		float tmp = -1 * PI_FLT * (1 - constant + posa * tid);
 		d_a[tid] = make_cuComplex(std::cos(tmp), std::sin(tmp));
 	}
-}
-
-
-void mtrc(cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles)
-{
-	dim3 block(DEFAULT_THREAD_PER_BLOCK);
-	float scale_ifft_range = 1 / static_cast<float>(paras.range_num);
-	float scale_ifft_echo = 1 / static_cast<float>(paras.echo_num);
-
-	float chirp_rate = static_cast<float>(paras.band_width) / static_cast<float>(paras.Tp);
-	//posa = K * T_ref / (f0 * (Nr - 1));
-	float posa = chirp_rate * static_cast<float>(paras.Tp) / (paras.fc * (paras.range_num - 1.0f));
-
-	// St=ifft(ifftshift(Sf,2),[],2);
-	cuComplex* d_st = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_st, sizeof(cuComplex) * paras.data_num));
-	checkCudaErrors(cudaMemcpy(d_st, d_data, sizeof(cuComplex) * paras.data_num, cudaMemcpyDeviceToDevice));
-	// ifftshift
-	ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_st, paras.range_num);
-	checkCudaErrors(cudaDeviceSynchronize());
-	// ifft
-	checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c_cut, d_st, d_st, CUFFT_INVERSE));
-	checkCudaErrors(cublasCsscal(handles.handle, paras.data_num, &scale_ifft_range, d_st, 1));
-
-	// * CZT
-	// calculating w and a vector for each range
-	cuComplex* d_w = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_w, sizeof(cuComplex) * paras.range_num));
-	cuComplex* d_a = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_a, sizeof(cuComplex) * paras.range_num));
-
-	float constant = chirp_rate * static_cast<float>(paras.Tp) / (2 * paras.fc);
-	getWandA << <(2 * paras.range_num + block.x - 1) / block.x, block >> > (d_w, d_a, paras.echo_num, paras.range_num, constant, posa);
-	checkCudaErrors(cudaDeviceSynchronize());
-
-	//cuComplex* d_czt = nullptr;
-	//checkCudaErrors(cudaMalloc((void**)&d_czt, sizeof(cuComplex) * paras.data_num));
-	cuComplex* d_czt = d_data;
-	cztRange(d_czt, d_st, d_w, d_a, paras.echo_num, paras.range_num, handles);
-	ifftshiftCols << <dim3(paras.range_num, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_czt, paras.echo_num);
-	checkCudaErrors(cudaDeviceSynchronize());
-
-	// ifft
-	checkCudaErrors(cufftExecC2C(handles.plan_all_range_c2c, d_czt, d_czt, CUFFT_INVERSE));
-	checkCudaErrors(cublasCsscal(handles.handle, paras.data_num, &scale_ifft_echo, d_czt, 1));
-	// ifftshift
-	ifftshiftCols << <dim3(paras.range_num, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_czt, paras.echo_num);
-	checkCudaErrors(cudaDeviceSynchronize());
-
-	// fft
-	checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c_cut, d_czt, d_czt, CUFFT_FORWARD));
-	// fftshift
-	ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_czt, paras.range_num);
-	checkCudaErrors(cudaDeviceSynchronize());
-	// fftshift
-	ifftshiftCols << <dim3(paras.range_num, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_czt, paras.echo_num);
-	checkCudaErrors(cudaDeviceSynchronize());
-
-	// * Free allocated memory
-	checkCudaErrors(cudaFree(d_st));
-	checkCudaErrors(cudaFree(d_w));
-	checkCudaErrors(cudaFree(d_a));
-	//checkCudaErrors(cudaFree(d_czt));
 }

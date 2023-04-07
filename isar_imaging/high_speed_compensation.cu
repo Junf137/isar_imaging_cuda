@@ -1,24 +1,6 @@
 ﻿#include "high_speed_compensation.cuh"
 
 
-__global__ void genTk2Vec__(double* d_tk2, double Fs, int cols, int len)
-{
-	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	if (tid < len) {
-		d_tk2[tid] = (static_cast<double>(tid % cols) / Fs) * (static_cast<double>(tid % cols) / Fs);
-	}
-}
-
-__global__ void diagMulMat(double* d_diag, double* d_data, double* d_res, int cols, int len)
-{
-	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-
-	if (tid < len) {
-		d_res[tid] = d_diag[static_cast<int>(tid / cols)] * d_data[tid];
-	}
-}
-
-
 void highSpeedCompensation(cuComplex* d_data, double* d_velocity, const RadarParameters& paras, const CUDAHandle& handles)
 {
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
@@ -30,11 +12,6 @@ void highSpeedCompensation(cuComplex* d_data, double* d_velocity, const RadarPar
 	checkCudaErrors(cudaMalloc((void**)&d_tk_2, sizeof(double) * paras.range_num));
 	genTk2Vec << <grid_one_echo, block >> > (d_tk_2, static_cast<double>(paras.Fs), paras.range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
-
-	//double* d_tk_2 = nullptr;  // tk_2 = repmat(([0:N-1]/fs).^2, echo_num, 1)
-	//checkCudaErrors(cudaMalloc((void**)&d_tk_2, sizeof(double) * paras.data_num));
-	//genTk2Vec__ << <grid, block >> > (d_tk_2, static_cast<double>(paras.Fs), paras.range_num, paras.data_num);
-	//checkCudaErrors(cudaDeviceSynchronize());
 
 	// coefficient = - 4 * pi * K / c
 	double chirp_rate = static_cast<double>(paras.band_width) / paras.Tp;
@@ -53,10 +30,6 @@ void highSpeedCompensation(cuComplex* d_data, double* d_velocity, const RadarPar
 	double* d_phase = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_phase, sizeof(double) * paras.data_num));  // new allocated space are set to zero
 	checkCudaErrors(cublasDger(handles.handle, paras.range_num, paras.echo_num, &coefficient, d_tk_2, 1, d_velocity, 1, d_phase, paras.range_num));
-
-	//diagMulMat << <grid, block >> > (d_velocity, d_tk_2, d_phase, paras.range_num, paras.data_num);
-	//checkCudaErrors(cudaDeviceSynchronize());
-	//checkCudaErrors(cublasDscal(handles.handle, paras.data_num, &coefficient, d_phase, 1));
 
 	//ioOperation::dataWriteBack(std::string(DIR_PATH) + "fai.dat", d_phase, paras.data_num);
 

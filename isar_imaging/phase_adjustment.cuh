@@ -17,16 +17,15 @@ void dopplerTracking(cuComplex* d_data_comp, cuComplex* d_phase, cuComplex* d_da
 
 
 /// <summary>
-/// d_res = diag(d_diag) * d_data
-/// d_diag is a vector of size len / cols.
+/// Doppler tracking. Method 2.
 /// </summary>
-/// <param name="d_diag"></param>
+/// <param name="d_data_comp"></param>
+/// <param name="d_phase"></param>
 /// <param name="d_data"></param>
-/// <param name="d_res"></param>
-/// <param name="cols"></param>
-/// <param name="len"></param>
-/// <returns></returns>
-__global__ void diagMulMat(cuComplex* d_diag, cuComplex* d_data, cuComplex* d_res, int cols, int len);
+/// <param name="echo_num"></param>
+/// <param name="range_num"></param>
+/// <param name="if_compensation"></param>
+//void dopplerTracking_2(cuComplex* d_data_comp, cuComplex* d_phase, cuComplex* d_data, const int& echo_num, const int& range_num, const bool& if_compensation);
 
 
 /// <summary>

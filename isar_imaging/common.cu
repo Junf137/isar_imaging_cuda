@@ -1,6 +1,7 @@
 ﻿#include "common.cuh"
 
 
+/* CUDAHandle Class */
 CUDAHandle::CUDAHandle(const int& echo_num, const int& range_num)
 {
 	checkCudaErrors(cublasCreate(&handle));
@@ -86,6 +87,15 @@ __global__ void elementwiseAbs(cuComplex* a, float* abs, int len)
 }
 
 
+__global__ void elementwiseConj(cuComplex* d_data, cuComplex* d_data_conj, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		d_data_conj[tid] = cuConjf(d_data[tid]);
+	}
+}
+
+
 __global__ void elementwiseMultiply(cuComplex* a, cuComplex* b, cuComplex* c, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -100,6 +110,24 @@ __global__ void elementwiseMultiply(cuDoubleComplex* a, cuDoubleComplex* b, cuDo
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < len) {
 		c[tid] = cuCmul(a[tid], b[tid]);
+	}
+}
+
+
+__global__ void elementwiseMultiply(float* a, float* b, float* c, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		c[tid] = a[tid] * b[tid];
+	}
+}
+
+
+__global__ void elementwiseMultiply(float* a, cuComplex* b, cuComplex* c, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		c[tid] = make_cuComplex(a[tid] * b[tid].x, a[tid] * b[tid].y);
 	}
 }
 
@@ -131,11 +159,20 @@ __global__ void elementwiseMultiplyRep(cuDoubleComplex* a, cuDoubleComplex* b, c
 }
 
 
-__global__ void elementwiseMultiply(float* a, float* b, float* c, int len)
+__global__ void elementwiseMultiplyRep(float* a, cuComplex* b, cuComplex* c, int len_a, int len_b)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len_b) {
+		c[tid] = cuCmulf(make_cuComplex(a[tid % len_a], 0.0f), b[tid]);
+	}
+}
+
+
+__global__ void elementwiseDiv(float* a, cuComplex* b, cuComplex* c, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < len) {
-		c[tid] = a[tid] * b[tid];
+		c[tid] = make_cuComplex(b[tid].x / a[tid], b[tid].y / a[tid]);
 	}
 }
 
@@ -149,29 +186,33 @@ __global__ void elementwiseDivRep(float* a, float* b, float* c, int len_a, int l
 }
 
 
-__global__ void elementwiseMultiply(float* a, cuComplex* b, cuComplex* c, int len)
+__global__ void diagMulMat(cuComplex* d_diag, cuComplex* d_data, cuComplex* d_res, int cols, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
 	if (tid < len) {
-		c[tid] = cuCmulf(make_cuComplex(a[tid], 0.0f), b[tid]);
+		d_res[tid] = cuCmulf(d_diag[static_cast<int>(tid / cols)], d_data[tid]);
 	}
 }
 
 
-__global__ void elementwiseMultiplyRep(float* a, cuComplex* b, cuComplex* c, int len_a, int len_b)
+__global__ void diagMulMat(float* d_diag, cuComplex* d_data, cuComplex* d_res, int cols, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	if (tid < len_b) {
-		c[tid] = cuCmulf(make_cuComplex(a[tid % len_a], 0.0f), b[tid]);
+
+	if (tid < len) {
+		float tmp = d_diag[static_cast<int>(tid / cols)];
+		d_res[tid] = make_cuComplex(tmp * d_data[tid].x, tmp * d_data[tid].y);
 	}
 }
 
 
-__global__ void elementwiseMultiply(float* a, cuComplex* b, float* c, int len)
+__global__ void diagMulMat(double* d_diag, double* d_data, double* d_res, int cols, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
 	if (tid < len) {
-		c[tid] = a[tid] * cuCabsf(b[tid]);
+		d_res[tid] = d_diag[static_cast<int>(tid / cols)] * d_data[tid];
 	}
 }
 
@@ -257,34 +298,6 @@ __global__ void genHammingVec(float* d_hamming, int len)
 //}
 
 
-//void getMaxInColumns(thrust::device_vector<float>& c, thrust::device_vector<float>& maxval, thrust::device_vector<int>& maxidx, int row, int col)
-//{
-//	thrust::reduce_by_key(
-//		thrust::make_transform_iterator(
-//			thrust::make_counting_iterator((int)0),
-//			thrust::placeholders::_1 / row),
-//		thrust::make_transform_iterator(
-//			thrust::make_counting_iterator((int)0),
-//			thrust::placeholders::_1 / row) + row * col,
-//		thrust::make_zip_iterator(
-//			thrust::make_tuple(
-//				thrust::make_permutation_iterator(
-//					c.begin(),
-//					thrust::make_transform_iterator(
-//						thrust::make_counting_iterator((int)0), (thrust::placeholders::_1 % row) * col + thrust::placeholders::_1 / row)),
-//				thrust::make_transform_iterator(
-//					thrust::make_counting_iterator((int)0), thrust::placeholders::_1 % row))),
-//		thrust::make_discard_iterator(),
-//		thrust::make_zip_iterator(
-//			thrust::make_tuple(
-//				maxval.begin(),
-//				maxidx.begin())),
-//		thrust::equal_to<int>(),
-//		thrust::maximum<thrust::tuple<float, int> >()
-//	);
-//}
-
-
 __global__ void maxCols(float* d_data, float* d_max_clos, int rows, int cols)
 {
 	int bid = blockIdx.x;
@@ -293,80 +306,24 @@ __global__ void maxCols(float* d_data, float* d_max_clos, int rows, int cols)
 
 	// [todo] Possible optimization:  halve the number of threads and size of shared memory assigned for each block.
 	// Perform a reduction within the block to compute the final maximum value.
-	// sdata_max_cols_idx store the index of the maximum value in each block.
-	extern __shared__ int sdata_max_cols_idx[];
-	sdata_max_cols_idx[tid] = tid * cols + bid;
+	// sdata_max_cols_int store the index of the maximum value in each block.
+	extern __shared__ int sdata_max_cols_int[];
+	sdata_max_cols_int[tid] = tid * cols + bid;
 	__syncthreads();
 
 	for (int s = (nTPB >> 1); s > 0; s >>= 1) {
 		if (tid < s) {
-			if (d_data[sdata_max_cols_idx[tid]] < d_data[sdata_max_cols_idx[tid + s]]) {
-				sdata_max_cols_idx[tid] = sdata_max_cols_idx[tid + s];
+			if (d_data[sdata_max_cols_int[tid]] < d_data[sdata_max_cols_int[tid + s]]) {
+				sdata_max_cols_int[tid] = sdata_max_cols_int[tid + s];
 			}
 		}
 		__syncthreads();
 	}
 
 	if (tid == 0) {
-		d_max_clos[bid] = d_data[sdata_max_cols_idx[0]];
+		d_max_clos[bid] = d_data[sdata_max_cols_int[0]];
 	}
 }
-
-
-//template <typename InputIterator1, typename InputIterator2, typename OutputIterator>
-//OutputIterator expand(InputIterator1 first1, InputIterator1 last1, InputIterator2 first2, OutputIterator output)
-//{
-//	typedef typename thrust::iterator_difference<InputIterator1>::type difference_type;
-//
-//	difference_type input_size = thrust::distance(first1, last1);
-//	difference_type output_size = thrust::reduce(first1, last1);
-//
-//	// scan the counts to obtain output offsets for each input element
-//	thrust::device_vector<difference_type> output_offsets(input_size, 0);
-//	thrust::exclusive_scan(first1, last1, output_offsets.begin());
-//
-//	// scatter the nonzero counts into their corresponding output positions
-//	thrust::device_vector<difference_type> output_indices(output_size, 0);
-//	thrust::scatter_if(thrust::counting_iterator<difference_type>(0), thrust::counting_iterator<difference_type>(input_size), output_offsets.begin(), first1, output_indices.begin());
-//
-//	// compute max-scan over the output indices, filling in the holes
-//	thrust::inclusive_scan(output_indices.begin(), output_indices.end(), output_indices.begin(), thrust::maximum<difference_type>());
-//
-//	// gather input values according to index array (output = first2[output_indices])
-//	OutputIterator output_end = output; thrust::advance(output_end, output_size);
-//	thrust::gather(output_indices.begin(), output_indices.end(), first2, output);
-//
-//	// return output + output_size
-//	thrust::advance(output, output_size);
-//	return output;
-//}
-//
-//
-//void sumRows_thr(cuComplex* d_data, cuComplex* d_sum_rows, const int& row, const int& col)
-//{
-//	if (row == 1) {
-//		if (d_data != d_sum_rows) {
-//			checkCudaErrors(cudaMemcpy(d_sum_rows, d_data, sizeof(cuComplex) * col, cudaMemcpyDeviceToDevice));
-//		}
-//		return;
-//	}
-//
-//	thrust::device_ptr<comThr> thr_d_data = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_data));
-//	thrust::device_ptr<comThr> thr_d_sum_rows = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_sum_rows));
-//
-//	// * Generating keys for reduce_by_key
-//	thrust::device_vector<int> oriKey(row);
-//	thrust::sequence(thrust::device, oriKey.begin(), oriKey.end(), 1);
-//
-//	thrust::device_vector<int> d_counts(row, col);
-//	thrust::device_vector<int> keyVec(row * col);  // 1,...,1,2,...,2,...,row,...,row
-//
-//	// * Expand keys according to counts
-//	expand(d_counts.begin(), d_counts.end(), oriKey.begin(), keyVec.begin());
-//
-//	// * Sum mulRes in rows
-//	thrust::reduce_by_key(thrust::device, keyVec.begin(), keyVec.end(), thr_d_data, thrust::make_discard_iterator(), thr_d_sum_rows);
-//}
 
 
 __global__ void sumCols(float* d_data, float* d_sum_clos, int rows, int cols)
@@ -377,19 +334,19 @@ __global__ void sumCols(float* d_data, float* d_sum_clos, int rows, int cols)
 
 	// [todo] Possible optimization:  halve the number of threads and size of shared memory assigned for each block.
 	// Perform a reduction within the block to compute the final sum
-	extern __shared__ float sdata[];
-	sdata[tid] = d_data[tid * cols + bid];
+	extern __shared__ float sdata_sum_cols_flt[];
+	sdata_sum_cols_flt[tid] = d_data[tid * cols + bid];
 	__syncthreads();
 
 	for (int s = (nTPB >> 1); s > 0; s >>= 1) {
 		if (tid < s) {
-			sdata[tid] += sdata[tid + s];
+			sdata_sum_cols_flt[tid] += sdata_sum_cols_flt[tid + s];
 		}
 		__syncthreads();
 	}
 
 	if (tid == 0) {
-		d_sum_clos[bid] = sdata[0];
+		d_sum_clos[bid] = sdata_sum_cols_flt[0];
 	}
 }
 
@@ -405,19 +362,47 @@ __global__ void sumRows(cuComplex* d_data, cuComplex* d_sum_rows, int rows, int 
 	}
 
 	// Perform a reduction within the block to compute the final sum
-	extern __shared__ cuComplex s_data[];
-	s_data[tid] = t_sum;
+	extern __shared__ cuComplex sdata_sum_rows_com_flt[];
+	sdata_sum_rows_com_flt[tid] = t_sum;
 	__syncthreads();
 
 	for (int s = blockDim.x / 2; s > 0; s >>= 1) {
 		if (tid < s) {
-			s_data[tid] = cuCaddf(s_data[tid], s_data[tid + s]);
+			sdata_sum_rows_com_flt[tid] = cuCaddf(sdata_sum_rows_com_flt[tid], sdata_sum_rows_com_flt[tid + s]);
 		}
 		__syncthreads();
 	}
 
 	if (tid == 0) {
-		d_sum_rows[bid] = s_data[0];
+		d_sum_rows[bid] = sdata_sum_rows_com_flt[0];
+	}
+}
+
+
+__global__ void sumRows(float* d_data, float* d_sum_rows, int rows, int cols)
+{
+	int bid = blockIdx.x;
+	int tid = threadIdx.x;
+
+	float t_sum = 0.0f;
+	for (int i = tid; i < cols; i += blockDim.x) {
+		t_sum = t_sum + d_data[bid * cols + i];
+	}
+
+	// Perform a reduction within the block to compute the final sum
+	extern __shared__ float sdata_sum_rows_flt[];
+	sdata_sum_rows_flt[tid] = t_sum;
+	__syncthreads();
+
+	for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+		if (tid < s) {
+			sdata_sum_rows_flt[tid] = sdata_sum_rows_flt[tid] + sdata_sum_rows_flt[tid + s];
+		}
+		__syncthreads();
+	}
+
+	if (tid == 0) {
+		d_sum_rows[bid] = sdata_sum_rows_flt[0];
 	}
 }
 
@@ -617,6 +602,7 @@ float interpolate(const std::vector<int>& xData, const std::vector<float>& yData
 	return yL + dydx * (x - xL);  // linear interpolation
 }
 
+
 int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
 	const vec2D_DBL& dataN, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len)
 {
@@ -649,6 +635,7 @@ int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_DB
 
 	return EXIT_SUCCESS;
 }
+
 
 int nonUniformSamplingFun() {
 	return EXIT_SUCCESS;
@@ -707,6 +694,7 @@ int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* fra
 
 	return EXIT_SUCCESS;
 }
+
 
 int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, int* pulse_num_all, \
 	const RadarParameters& paras, const int& frame_len, const int& frame_num)
@@ -778,6 +766,7 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchInde
 	return EXIT_SUCCESS;
 }
 
+
 int ioOperation::getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
 	const vec2D_DBL& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len, const bool& nonUniformSampling)
 {
@@ -791,6 +780,7 @@ int ioOperation::getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn
 
 	return EXIT_SUCCESS;
 }
+
 
 int ioOperation::getKuDataStretch(vec1D_COM_FLT* dataW, std::vector<int>* frameHeader, \
 	const vec2D_INT& stretchIndex, const std::vector<int>& dataWFileSn)
@@ -865,6 +855,7 @@ int ioOperation::writeFile(const std::string& outFilePath, const cuComplex* data
 	ofs.close();
 	return EXIT_SUCCESS;
 }
+
 
 int ioOperation::writeFile(const std::string& outFilePath, const cuDoubleComplex* data, const  size_t& data_size)
 {

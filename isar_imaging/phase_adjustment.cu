@@ -7,7 +7,6 @@ void dopplerTracking(cuComplex* d_data_comp, cuComplex* d_phase, cuComplex* d_da
 	int data_num_less_echo = (echo_num - 1) * range_num;
 
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);
-	dim3 grid((data_num + block.x - 1) / block.x);
 
 	// * Applying conjugate multiplication on two successive rows
 	cuComplex* d_mul_res = nullptr;
@@ -15,27 +14,25 @@ void dopplerTracking(cuComplex* d_data_comp, cuComplex* d_phase, cuComplex* d_da
 	elementwiseMultiplyConjA << <(data_num_less_echo + block.x - 1) / block.x, block >> > (d_data, d_data + range_num, d_mul_res, data_num_less_echo);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// * Sum mulRes in rows
-	thrust::device_vector<comThr> xw(echo_num - 1);
-	cuComplex* d_xw = reinterpret_cast<cuComplex*>(thrust::raw_pointer_cast(xw.data()));
-	sumRows << <echo_num, block, block.x * sizeof(cuComplex) >> > (d_mul_res, d_xw, echo_num - 1, range_num);
+	// * Sum d_mul_res in rows
+	thrust::device_ptr<comThr> thr_phase = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_phase));
+	sumRows << <echo_num - 1, block, block.x * sizeof(cuComplex) >> > (d_mul_res, d_phase + 1, echo_num - 1, range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * Getting compensation angle
 	thrust::device_vector<float> angle(echo_num - 1);
-	thrust::transform(thrust::device, xw.begin(), xw.end(), angle.begin(), \
+	thrust::transform(thrust::device, thr_phase + 1, thr_phase + echo_num, angle.begin(), \
 		[]__host__ __device__(const comThr & x) { return thrust::arg(x); });
 	thrust::inclusive_scan(thrust::device, angle.begin(), angle.end(), angle.begin());
 
 	// * Calculating phase using angle
-	thrust::device_ptr<comThr> thr_d_phase = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_phase));
-	thr_d_phase[0] = comThr(1.0f, 0.0f);
-	thrust::transform(thrust::device, angle.begin(), angle.end(), thr_d_phase + 1, \
+	thr_phase[0] = comThr(0.0f, 0.0f);
+	thrust::transform(thrust::device, angle.begin(), angle.end(), thr_phase + 1, \
 		[]__host__ __device__(const float& x) { return thrust::exp(comThr(0.0, -x)); });
 
 	// * Compensation
 	if (if_compensation == true) {
-		diagMulMat << <grid, block >> > (d_phase, d_data, d_data_comp, range_num, data_num);
+		diagMulMat << <(data_num + block.x - 1) / block.x, block >> > (d_phase, d_data, d_data_comp, range_num, data_num);
 		checkCudaErrors(cudaDeviceSynchronize());
 	}
 
@@ -44,14 +41,55 @@ void dopplerTracking(cuComplex* d_data_comp, cuComplex* d_phase, cuComplex* d_da
 }
 
 
-__global__ void diagMulMat(cuComplex* d_diag, cuComplex* d_data, cuComplex* d_res, int cols, int len)
-{
-	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-
-	if (tid < len) {
-		d_res[tid] = cuCmulf(d_diag[static_cast<int>(tid / cols)], d_data[tid]);
-	}
-}
+//void dopplerTracking_2(cuComplex* d_data_comp, cuComplex* d_phase, cuComplex* d_data, const int& echo_num, const int& range_num, const bool& if_compensation)
+//{
+//	int data_num = echo_num * range_num;
+//	int data_num_less_echo = (echo_num - 1) * range_num;
+//
+//	dim3 block(DEFAULT_THREAD_PER_BLOCK);
+//
+//	// * Applying conjugate multiplication on two successive rows
+//	cuComplex* d_mul_res = nullptr;
+//	checkCudaErrors(cudaMalloc((void**)&d_mul_res, sizeof(cuComplex) * data_num_less_echo));
+//	elementwiseMultiplyConjA << <(data_num_less_echo + block.x - 1) / block.x, block >> > (d_data, d_data + range_num, d_mul_res, data_num_less_echo);
+//	checkCudaErrors(cudaDeviceSynchronize());
+//
+//	cuComplex* d_xw_1 = nullptr;
+//	checkCudaErrors(cudaMalloc((void**)&d_xw_1, sizeof(cuComplex) * (echo_num - 1)));
+//	sumRows << <echo_num - 1, block, block.x * sizeof(cuComplex) >> > (d_mul_res, d_xw_1, echo_num - 1, range_num);
+//	checkCudaErrors(cudaDeviceSynchronize());
+//
+//	float* d_mul_res_abs = nullptr;
+//	checkCudaErrors(cudaMalloc((void**)&d_mul_res_abs, sizeof(float) * data_num_less_echo));
+//	elementwiseAbs << <(data_num_less_echo + block.x - 1) / block.x, block >> > (d_mul_res, d_mul_res_abs, data_num);
+//	checkCudaErrors(cudaDeviceSynchronize());
+//
+//	float* d_xw_2 = nullptr;
+//	checkCudaErrors(cudaMalloc((void**)&d_xw_2, sizeof(float)* (echo_num - 1)));
+//	sumRows << <echo_num - 1, block, block.x * sizeof(float) >> > (d_mul_res_abs, d_xw_2, echo_num - 1, range_num);
+//	checkCudaErrors(cudaDeviceSynchronize());
+//
+//	elementwiseDiv << <((echo_num - 1) + block.x - 1) / block.x, block >> > (d_xw_2, d_xw_1, d_xw_1, echo_num - 1);
+//	checkCudaErrors(cudaDeviceSynchronize());
+//
+//	cuComplex tmp = make_cuComplex(0.0f, 0.0f);
+//	checkCudaErrors(cudaMemcpy(d_phase, &tmp, sizeof(cuComplex) * 1, cudaMemcpyHostToDevice));
+//
+//	elementwiseConj << <((echo_num - 1) + block.x - 1) / block.x, block >> > (d_xw_1, d_phase + 1, echo_num - 1);
+//	checkCudaErrors(cudaDeviceSynchronize());
+//
+//	// * Compensation
+//	if (if_compensation == true) {
+//		diagMulMat << <(data_num + block.x - 1) / block.x, block >> > (d_phase, d_data, d_data_comp, range_num, data_num);
+//		checkCudaErrors(cudaDeviceSynchronize());
+//	}
+//
+//	// * Free Allocated Space
+//	checkCudaErrors(cudaFree(d_mul_res));
+//	checkCudaErrors(cudaFree(d_xw_1));
+//	checkCudaErrors(cudaFree(d_mul_res_abs));
+//	checkCudaErrors(cudaFree(d_xw_2));
+//}
 
 
 //void rangeVariantPhaseComp(cuComplex* d_data, double* h_azimuth, double* h_pitch, const RadarParameters& paras, const CUDAHandle& handles)
@@ -143,17 +181,17 @@ void fastEntropy(cuComplex*& d_data, const int& echo_num, const int& range_num, 
 	// max_value = max(abs(d_data),[],1);
 	float* d_max_val = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_max_val, sizeof(float) * range_num));
-	thrust::device_ptr<float> thr_max_value = thrust::device_pointer_cast(d_max_val);
+	thrust::device_ptr<float> thr_max_val = thrust::device_pointer_cast(d_max_val);
 	maxCols << <range_num, block, block.x * sizeof(int) >> > (d_data_abs, d_max_val, echo_num, range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// mean_value = mean(max_value);
-	float mean_value = thrust::reduce(thrust::device, thr_max_value, thr_max_value + range_num, 0, thrust::plus<int>()) / static_cast<float>(range_num);
-	float threshold = 1.48f * mean_value;
+	// mean_val = mean(max_value);
+	float mean_val = thrust::reduce(thrust::device, thr_max_val, thr_max_val + range_num, 0, thrust::plus<int>()) / static_cast<float>(range_num);
+	float threshold = 1.48f * mean_val;
 
-	// tgt_index = find(max_value > mean_value*1.48);
+	// tgt_index = find(max_value > mean_val*1.48);
 	thrust::device_vector<int> tgt_index(range_num);
-	auto end = thrust::copy_if(thrust::make_counting_iterator(0), thrust::make_counting_iterator(range_num), thr_max_value, tgt_index.begin(), \
+	auto end = thrust::copy_if(thrust::make_counting_iterator(0), thrust::make_counting_iterator(range_num), thr_max_val, tgt_index.begin(), \
 		[=]__host__ __device__(const float& x) { return (x > threshold); });
 	int tgt_num = static_cast<int>(end - tgt_index.begin());
 	//tgt_index.resize(tgt_num);
@@ -163,6 +201,7 @@ void fastEntropy(cuComplex*& d_data, const int& echo_num, const int& range_num, 
 	checkCudaErrors(cudaMalloc((void**)&d_data_comp, sizeof(cuComplex)* data_num));
 	cuComplex* d_phase_tmp = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_phase_tmp, sizeof(cuComplex)* echo_num));
+	thrust::device_ptr<comThr> thr_phase_tmp = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_phase_tmp));
 	dopplerTracking(d_data_comp, d_phase_tmp, d_data, echo_num, range_num, true);
 
 	if (tgt_num < 5) {
@@ -182,59 +221,58 @@ void fastEntropy(cuComplex*& d_data, const int& echo_num, const int& range_num, 
 	checkCudaErrors(cufftExecC2C(handles.plan_all_range_c2c, d_data_comp, d_img, CUFFT_FORWARD));
 
 	int unit1_num = tgt_num;
-	int unit2_num = nextPow2(tgt_num / 2) / 2;
+	int unit2_num = nextPow2(tgt_num / 2);
 
 	// sqr_img = abs(image2).^2;
-	float* d_sqr_image = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_sqr_image, sizeof(float) * data_num));
-	thrust::device_ptr<float> thr_sqr_img = thrust::device_pointer_cast(d_sqr_image);
+	float* d_sqr_img = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_sqr_img, sizeof(float) * data_num));
+	thrust::device_ptr<float> thr_sqr_img = thrust::device_pointer_cast(d_sqr_img);
 	thrust::transform(thrust::device, thr_img, thr_img + data_num, thr_sqr_img, \
 		[]__host__ __device__(const comThr & x) { return powf(thrust::abs(x), 2); });
-
+	
 	// sqr_image_sum_col = sum(sqr_img);
 	float* d_sqr_img_sum_col = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_sqr_img_sum_col, sizeof(float) * range_num));
 	thrust::device_ptr<float> thr_sqr_img_sum_col = thrust::device_pointer_cast(d_sqr_img_sum_col);
-	sumCols << <range_num, echo_num, echo_num * sizeof(float) >> > (d_sqr_image, d_sqr_img_sum_col, echo_num, range_num);
+	sumCols << <range_num, echo_num, echo_num * sizeof(float) >> > (d_sqr_img, d_sqr_img_sum_col, echo_num, range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * Get entropy
-	float* d_mask_entropy = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_mask_entropy, sizeof(float) * data_num));
-	thrust::device_ptr<float> thr_mask_entropy = thrust::device_pointer_cast(d_mask_entropy);
-	elementwiseDivRep << <grid, block >> > (d_sqr_img_sum_col, d_sqr_image, d_mask_entropy, range_num, data_num);
+	float* d_sqr_img_norm = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_sqr_img_norm, sizeof(float) * data_num));
+	thrust::device_ptr<float> thr_sqr_img_norm = thrust::device_pointer_cast(d_sqr_img_norm);
+	elementwiseDivRep << <grid, block >> > (d_sqr_img_sum_col, d_sqr_img, d_sqr_img_norm, range_num, data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	thrust::transform(thrust::device, thr_mask_entropy, thr_mask_entropy + data_num, thr_mask_entropy, \
-		[]__host__ __device__(const float& x) { return -(x * logf(x)); });
+	thrust::transform(thrust::device, thr_sqr_img_norm, thr_sqr_img_norm + data_num, thr_sqr_img_norm, \
+		[]__host__ __device__(float& x) { return -(x * logf(x)); });
 
 	float* d_entropy = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_entropy, sizeof(float) * range_num));
-	sumCols << <range_num, echo_num, echo_num * sizeof(float) >> > (d_mask_entropy, d_entropy, echo_num, range_num);
+	sumCols << <range_num, echo_num, echo_num * sizeof(float) >> > (d_sqr_img_norm, d_entropy, echo_num, range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// * Store the index of the first unit1_num largest values of sqr_image_sum_col in select_bin1
-	thrust::device_vector<int> idx_sqr_img_sum_col(range_num);
-	thrust::sequence(thrust::device, idx_sqr_img_sum_col.begin(), idx_sqr_img_sum_col.end(), 0);
-	thrust::stable_sort_by_key(thrust::device, thr_sqr_img_sum_col, thr_sqr_img_sum_col + range_num, idx_sqr_img_sum_col.begin(), thrust::greater<float>());
+	// * Store the index of the first unit1_num largest values of sqr_image_sum_col in select_bin
+	thrust::device_vector<int> select_bin(range_num);
+	thrust::sequence(thrust::device, select_bin.begin(), select_bin.end(), 0);
+	thrust::stable_sort_by_key(thrust::device, thr_sqr_img_sum_col, thr_sqr_img_sum_col + range_num, select_bin.begin(), thrust::greater<float>());
+	select_bin.resize(unit1_num);
 
-	thrust::device_vector<int> select_bin1(idx_sqr_img_sum_col.begin(), idx_sqr_img_sum_col.begin() + unit1_num);  // length == unit1_num
-
-	// * Store the index of the first unit2_num smallest values of entropy in select_bin2
+	// * Store the index of the first unit2_num smallest values of entropy in select_bin
 	thrust::device_vector<float> select_entropy(unit1_num);
 	for (int ii = 0; ii < unit1_num; ii++) {
-		select_entropy[ii] = d_entropy[select_bin1[ii]];
+		select_entropy[ii] = d_entropy[select_bin[ii]];
 	}
-	thrust::stable_sort_by_key(thrust::device, select_entropy.begin(), select_entropy.end(), select_bin1.begin());
+	thrust::stable_sort_by_key(thrust::device, select_entropy.begin(), select_entropy.end(), select_bin.begin());
 
-	thrust::device_vector<int> select_bin2(select_bin1.begin(), select_bin1.begin() + unit2_num);
-	int* d_select_bin2 = thrust::raw_pointer_cast(select_bin2.data());
+	select_bin.resize(unit2_num);
+	int* d_select_bin = thrust::raw_pointer_cast(select_bin.data());
 
-	thrust::sort(thrust::device, select_bin2.begin(), select_bin2.end());
+	thrust::sort(thrust::device, select_bin.begin(), select_bin.end());
 
-	// * Rebuild echo using select_bin2
+	// * Rebuild echo using select_bin
 	int data_num_unit2 = echo_num * unit2_num;
-	float scale_ifft = 1 / static_cast<float>(echo_num);
+	float scale_ifft = 1.0f / echo_num;
 
 	cuComplex* d_new_data = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_new_data, sizeof(cuComplex) * data_num_unit2));
@@ -244,14 +282,11 @@ void fastEntropy(cuComplex*& d_data, const int& echo_num, const int& range_num, 
 		system("pause");
 		exit(EXIT_FAILURE);
 	}
-	selectRangeBins << <echo_num, unit2_num >> > (d_new_data, d_data, d_select_bin2, echo_num, range_num, unit2_num);
+	selectRangeBins << <echo_num, unit2_num >> > (d_new_data, d_data, d_select_bin, echo_num, range_num, unit2_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * Doppler phase tracking
-	cuComplex* d_phase_select = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_phase_select, sizeof(cuComplex) * echo_num));
-	thrust::device_ptr<comThr> thr_phase_select = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_phase_select));
-	dopplerTracking(d_new_data, d_phase_select, d_new_data, echo_num, unit2_num, false);
+	dopplerTracking(d_new_data, d_phase_tmp, d_new_data, echo_num, unit2_num, false);
 
 	// * Minimum entropy searching
 	cuComplex* d_new_data_tmp = nullptr;
@@ -272,7 +307,7 @@ void fastEntropy(cuComplex*& d_data, const int& echo_num, const int& range_num, 
 	checkCudaErrors(cufftPlanMany(&plan_all_unit2_c2c, rank, n, inembed, istride, idist, onembed, ostride, odist, CUFFT_C2C, batch));
 
 	for (int i = 0; i < FAST_ENTROPY_ITERATION_NUM; ++i) {
-		diagMulMat << <(unit2_num * echo_num + block.x - 1) / block.x, block >> > (d_phase_select, d_new_data, d_new_data_tmp, unit2_num, echo_num* unit2_num);
+		diagMulMat << <(unit2_num * echo_num + block.x - 1) / block.x, block >> > (d_phase_tmp, d_new_data, d_new_data_tmp, unit2_num, echo_num* unit2_num);
 		checkCudaErrors(cudaDeviceSynchronize());
 
 		checkCudaErrors(cufftExecC2C(plan_all_unit2_c2c, d_new_data_tmp, d_new_data_tmp, CUFFT_FORWARD));
@@ -286,14 +321,14 @@ void fastEntropy(cuComplex*& d_data, const int& echo_num, const int& range_num, 
 		thrust::transform(thrust::device, thr_new_data, thr_new_data + data_num_unit2, thr_new_data_tmp, thr_new_data_tmp, \
 			[=]__host__ __device__(const comThr& x, const comThr& y) { return thrust::conj(x) * y; });
 
-		sumRows << <echo_num, unit2_num, unit2_num * sizeof(cuComplex) >> > (d_new_data_tmp, d_phase_select, echo_num, unit2_num);
+		sumRows << <echo_num, unit2_num, unit2_num * sizeof(cuComplex) >> > (d_new_data_tmp, d_phase_tmp, echo_num, unit2_num);
 		checkCudaErrors(cudaDeviceSynchronize());
 
-		thrust::transform(thrust::device, thr_phase_select, thr_phase_select + echo_num, thr_phase_select, \
+		thrust::transform(thrust::device, thr_phase_tmp, thr_phase_tmp + echo_num, thr_phase_tmp, \
 			[]__host__ __device__(const comThr& x) { return (x / thrust::abs(x)); });
 	}
 
-	diagMulMat << <(data_num + block.x - 1) / block.x, block >> > (d_phase_select, d_data, d_data, range_num, data_num);
+	diagMulMat << <(data_num + block.x - 1) / block.x, block >> > (d_phase_tmp, d_data, d_data, range_num, data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * Free allocated memory
@@ -302,12 +337,11 @@ void fastEntropy(cuComplex*& d_data, const int& echo_num, const int& range_num, 
 	checkCudaErrors(cudaFree(d_data_comp));
 	checkCudaErrors(cudaFree(d_phase_tmp));
 	checkCudaErrors(cudaFree(d_img));
-	checkCudaErrors(cudaFree(d_sqr_image));
+	checkCudaErrors(cudaFree(d_sqr_img));
 	checkCudaErrors(cudaFree(d_sqr_img_sum_col));
-	checkCudaErrors(cudaFree(d_mask_entropy));
+	checkCudaErrors(cudaFree(d_sqr_img_norm));
 	checkCudaErrors(cudaFree(d_entropy));
 	checkCudaErrors(cudaFree(d_new_data));
-	checkCudaErrors(cudaFree(d_phase_select));
 	checkCudaErrors(cudaFree(d_new_data_tmp));
 
 	checkCudaErrors(cufftDestroy(plan_all_unit2_c2c));

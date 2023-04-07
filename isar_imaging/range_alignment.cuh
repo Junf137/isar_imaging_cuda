@@ -4,16 +4,6 @@
 #include "common.cuh"
 
 
-///// <summary>
-///// Range alignment using linej algorithm
-///// </summary>
-///// <param name="d_data"></param>
-///// <param name="hamming_window"></param>
-///// <param name="paras"></param>
-///// <param name="handles"></param>
-//void rangeAlignment(cuComplex* d_data, float* hamming_window, const RadarParameters& paras, const CUDAHandle& handles);
-
-
 /// <summary>
 /// Range alignment using merging parallel algorithm.
 /// </summary>
@@ -122,13 +112,23 @@ __global__ void genFreqCenteringVec(float* hamming, cuComplex* d_freq_centering_
 
 
 /// <summary>
+/// Range alignment using linej algorithm
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="hamming_window"></param>
+/// <param name="paras"></param>
+/// <param name="handles"></param>
+//void rangeAlignment(cuComplex* d_data, float* hamming_window, const RadarParameters& paras, const CUDAHandle& handles);
+
+
+/// <summary>
 /// Calculate correlation function using fft algorithm.
 /// Two engaged vectors are required to share the same length.
 /// </summary>
 /// <param name="vec_a"> first vector </param>
 /// <param name="vec_b1"> second vector </param>
 /// <param name="vec_Corr"> correlation result </param>
-void getCorrelation(float* d_vec_corr, float* d_vec_a, float* d_vec_b, int len, cufftHandle plan_one_echo_r2c, cufftHandle plan_one_echo_c2r);
+//void getCorrelation(float* d_vec_corr, float* d_vec_a, float* d_vec_b, int len, cufftHandle plan_one_echo_r2c, cufftHandle plan_one_echo_c2r);
 
 
 /// <summary>
@@ -138,7 +138,7 @@ void getCorrelation(float* d_vec_corr, float* d_vec_a, float* d_vec_b, int len, 
 /// <param name="d_xstar"></param>
 /// <param name="maxPos"></param>
 /// <returns></returns>
-__global__ void binomialFix(float* d_vec_corr, float* d_xstar, int maxPos);
+//__global__ void binomialFix(float* d_vec_corr, float* d_xstar, int maxPos);
 
 
 /// <summary>
@@ -149,7 +149,7 @@ __global__ void binomialFix(float* d_vec_corr, float* d_xstar, int maxPos);
 /// <param name="d_data_i"></param>
 /// <param name="len"></param>
 /// <returns></returns>
-__global__ void updateVecB(float* d_vec_b, cuComplex* d_data_i, int len);
+//__global__ void updateVecB(float* d_vec_b, cuComplex* d_data_i, int len);
 
 
 /// <summary>
@@ -173,18 +173,19 @@ __global__ void genFreqMovVec(cuComplex* d_freq_mov_vec, float shit_num, int len
 void HRRPCenter(cuComplex* d_data, const int& inter_length, const RadarParameters& paras, const CUDAHandle& handles);
 
 
+template <typename T>
 /// <summary>
-/// slightly slower than doing circshift in frequency domain.
+/// slightly slower than circshiftFreq.
 /// </summary>
 /// <typeparam name="T"></typeparam>
 /// <param name="d_data"></param>
-/// <param name="frag_num"> fragment length </param>
-/// <param name="shift"> shift number for each fragment </param>
-/// <param name="len"> total length </param>
+/// <param name="frag_len"></param>
+/// <param name="shift"></param>
+/// <param name="len"></param>
+void circshiftTime(T* d_data, int frag_len, int shift, int len);
+
+
 template <typename T>
-void circshift(T* d_data, int frag_len, int shift, int len);
-
-
 /// <summary>
 /// 
 /// </summary>
@@ -194,8 +195,7 @@ void circshift(T* d_data, int frag_len, int shift, int len);
 /// <param name="shift_num"></param>
 /// <param name="len"></param>
 /// <returns></returns>
-template <typename T>
-__global__ void circShiftKernel(T* d_in, T* d_out, int frag_len, int shift_num, int len);
+__global__ void circShiftTimeKernel(T* d_in, T* d_out, int frag_len, int shift_num, int len);
 
 
 /// <summary>

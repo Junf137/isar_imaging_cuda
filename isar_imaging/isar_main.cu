@@ -84,7 +84,7 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const
 	 ******************/
 	std::cout << "---* Starting Get HRRP *---\n";
 
-	// * Adding Hamming Window
+	// * Adding hamming window in range dimension
 	float* d_hamming = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
 	genHammingVec << <dim3((paras.range_num + block.x - 1) / block.x), block >> > (d_hamming, paras.range_num);
@@ -177,6 +177,11 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const
 	std::cout << "************************************\n\n";
 
 
+#ifdef DATA_WRITE_BACK_PC
+	ioOperation::dataWriteBack(std::string(DIR_PATH) + "pc.dat", d_data, paras.data_num);
+#endif // DATA_WRITE_BACK_PC
+
+
 	/**********************
 	 * MTRC (Migration Through Range Cell)
 	 **********************/
@@ -194,14 +199,29 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const
 	}
 
 
+#ifdef DATA_WRITE_BACK_MTRC
+	ioOperation::dataWriteBack(std::string(DIR_PATH) + "mtrc.dat", d_data, paras.data_num);
+#endif // DATA_WRITE_BACK_MTRC
+
+
 	/**********************
 	* Post Processing
 	**********************/
-	//// applying fft on each range along the second dimension
-	//checkCudaErrors(cufftExecC2C(handles.plan_all_range_c2c, d_data, d_data, CUFFT_FORWARD));
-	//// fftshift
-	//ifftshiftCols << <dim3(paras.range_num, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_data, paras.echo_num);
-	//checkCudaErrors(cudaDeviceSynchronize());
+	// * Adding hamming window in range dimension
+	float* d_hamming_echoes = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_hamming_echoes, sizeof(float) * paras.echo_num));
+	genHammingVec << <dim3((paras.echo_num + block.x - 1) / block.x), block >> > (d_hamming_echoes, paras.echo_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// adding hamming
+	diagMulMat << <(paras.data_num + block.x - 1) / block.x, block >> > (d_hamming_echoes, d_data, d_data, paras.echo_num, paras.range_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// * Applying fft on each range along the second dimension
+	checkCudaErrors(cufftExecC2C(handles.plan_all_range_c2c, d_data, d_data, CUFFT_FORWARD));
+	// fftshift
+	ifftshiftCols << <dim3(paras.range_num, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_data, paras.echo_num);
+	checkCudaErrors(cudaDeviceSynchronize());
 
 
 	/**********************
@@ -222,13 +242,13 @@ int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const
 #endif // DATA_WRITE_BACK_FINAL
 
 
-
 	/**********************
 	* Free Allocated Memory & Destroy Pointer
 	**********************/
 	checkCudaErrors(cudaFree(d_data));
 	checkCudaErrors(cudaFree(d_hamming));
 	checkCudaErrors(cudaFree(d_hrrp));
+	checkCudaErrors(cudaFree(d_hamming_echoes));
 
 	return EXIT_SUCCESS;
 }

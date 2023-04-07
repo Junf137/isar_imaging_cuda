@@ -1,6 +1,220 @@
 ﻿#include "range_alignment.cuh"
 
 
+void rangeAlignmentParallel(cuComplex* d_data, float* hamming_window, const RadarParameters& paras, const CUDAHandle& handles)
+{
+	// * Kernel thread configuration
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
+	dim3 grid((paras.data_num + block.x - 1) / block.x);  // grid size
+
+	float scale_ifft = 1 / static_cast<float>(paras.range_num);  // scalar parameter used after cuFFT ifft transformation
+
+	// * Frequency centering
+	cuComplex* d_freq_centering = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_freq_centering, sizeof(cuComplex) * paras.range_num));
+	genFreqCenteringVec << <dim3((paras.range_num + block.x - 1) / block.x), block >> > (hamming_window, d_freq_centering, paras.range_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	elementwiseMultiplyRep << <grid, block >> > (d_freq_centering, d_data, d_data, paras.range_num, paras.data_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// * Merge alignment process
+	// * Initializing memory
+	// space for ifft vector and frequency moving vector
+	cuComplex* d_com_temp = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_com_temp, sizeof(cuComplex) * paras.data_num));
+	// space for abs after ifft
+	float* d_ifft_abs = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_ifft_abs, sizeof(float) * paras.data_num));
+	// space for average profile
+	float* d_ave_profile = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_ave_profile, sizeof(float) * paras.data_num));
+	// space for ifft when calculating correlation
+	cuComplex* d_ave_profile_fft = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_ave_profile_fft, sizeof(cuComplex) * paras.echo_num * (paras.range_num / 2 + 1)));  // Hermitian symmetry
+	// space for storing max value index of every rows
+	float* d_max_idx = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_max_idx, sizeof(float) * paras.echo_num));
+
+	// * MergeAligning d_data till stride equal to echo_num
+	int stride = 1;
+	while (stride < paras.echo_num) {
+		// getting profile of d_data in time domain
+		// ifft
+		checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c, d_data, d_com_temp, CUFFT_INVERSE));
+		checkCudaErrors(cublasCsscal(handles.handle, paras.data_num, &scale_ifft, d_com_temp, 1));
+		// abs
+		elementwiseAbs << <grid, block >> > (d_com_temp, d_ifft_abs, paras.data_num);
+		checkCudaErrors(cudaDeviceSynchronize());
+
+		// calculating average profile of each stride
+		getAveProfileParallel << <dim3(paras.range_num, static_cast<int>(paras.echo_num / stride)), stride, stride * sizeof(float) >> > (d_ifft_abs, d_ave_profile, paras.echo_num, paras.range_num, stride);
+		checkCudaErrors(cudaDeviceSynchronize());
+
+		// calculating correlation of each two stride's average profile
+		// fft
+		checkCudaErrors(cufftExecR2C(handles.plan_all_echo_r2c, d_ave_profile, d_ave_profile_fft));
+		// conjugate multiply
+		conjMulAveProfile << <paras.range_num, paras.echo_num / (stride * 2) >> > (d_ave_profile_fft, paras.echo_num, paras.range_num / 2 + 1, stride);
+		checkCudaErrors(cudaDeviceSynchronize());
+		// ifft
+		checkCudaErrors(cufftExecC2R(handles.plan_all_echo_c2r, d_ave_profile_fft, d_ave_profile));
+		// ifftshift in each rows
+		ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_ave_profile, paras.range_num);
+		checkCudaErrors(cudaDeviceSynchronize());
+
+		// getting maximum position in each correlation vector
+		maxRowsIdxABS << <paras.echo_num, block, block.x * sizeof(int) >> > (d_ave_profile, d_max_idx, paras.echo_num, paras.range_num);
+		checkCudaErrors(cudaDeviceSynchronize());
+
+		// aligning the second stride in each two stride
+		// generating frequency moving vector
+		genFreqMovParallel << < dim3((paras.range_num + block.x - 1) / block.x, paras.echo_num / (stride * 2)), block >> > (d_com_temp, d_max_idx, paras.range_num, stride);
+		checkCudaErrors(cudaDeviceSynchronize());
+		// align
+		alignWithinStride << < dim3((paras.range_num + block.x - 1) / block.x, stride, paras.echo_num / (stride * 2)), block >> > (d_data, d_com_temp, paras.range_num, stride);
+
+		// continuing next align process
+		stride *= 2;
+	}
+
+	// * Applying ifft to all echoes of d_data
+	checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c, d_data, d_data, CUFFT_INVERSE));
+	checkCudaErrors(cublasCsscal(handles.handle, paras.data_num, &scale_ifft, d_data, 1));
+
+	// * Free allocated memory
+	checkCudaErrors(cudaFree(d_com_temp));
+	checkCudaErrors(cudaFree(d_ifft_abs));
+	checkCudaErrors(cudaFree(d_ave_profile));
+	checkCudaErrors(cudaFree(d_ave_profile_fft));
+	checkCudaErrors(cudaFree(d_max_idx));
+	checkCudaErrors(cudaFree(d_freq_centering));
+}
+
+
+__global__ void getAveProfileParallel(float* d_data, float* d_ave_profile, int rows, int cols, const int& stride)
+{
+	int tid = threadIdx.x;
+	int bidx = blockIdx.x;
+	int bidy = blockIdx.y;
+
+	// Calculating the square of each element in the stride
+	extern __shared__ float sdata_getAveProfileParallel_flt[];
+	// rowIdx = bidy * blockDim.x + tid, colIdx = bidx
+	sdata_getAveProfileParallel_flt[tid] = d_data[(bidy * blockDim.x + tid) * cols + bidx] * d_data[(bidy * blockDim.x + tid) * cols + bidx];
+	__syncthreads();
+
+	// Perform a reduction within the block to compute the final result
+	for (int s = (blockDim.x >> 1); s > 0; s >>= 1) {
+		if (tid < s) {
+			sdata_getAveProfileParallel_flt[tid] += sdata_getAveProfileParallel_flt[tid + s];
+		}
+		__syncthreads();
+	}
+
+	if (tid == 0) {
+		// rowIdx = bidy * blockDim.x, colIdx = bidx
+		d_ave_profile[bidy * blockDim.x * cols + bidx] = std::sqrtf(sdata_getAveProfileParallel_flt[0]);
+	}
+}
+
+
+__global__ void conjMulAveProfile(cuComplex* d_data, int rows, int cols, int stride)
+{
+	int bid = blockIdx.x;
+	int tid = threadIdx.x;
+
+	// first stride: rowIdx = tid * stride * 2, colIdx = bid
+	// second stride: rowIdx = tid * stride * 2 + stride, colIdx = bid
+	int idx_1 = (tid * stride * 2) * cols + bid;
+	int idx_2 = (tid * stride * 2 + stride) * cols + bid;
+	d_data[idx_1] = cuCmulf(d_data[idx_1], cuConjf(d_data[idx_2]));
+}
+
+
+__device__ float binomialFixDevice(float* d_vec_corr, int maxPos)
+{
+	float f1 = d_vec_corr[maxPos - 1];
+	float f2 = d_vec_corr[maxPos];
+	float f3 = d_vec_corr[maxPos + 1];
+
+	float fa = (f1 + f3 - 2 * f2) / 2;
+	float fb = (f3 - f1) / 2;
+
+	return -fb / (2 * fa);
+}
+
+
+__global__ void maxRowsIdxABS(float* d_data, float* d_max_rows_idx, int rows, int cols)
+{
+	int bid = blockIdx.x;
+	int tid = threadIdx.x;
+	int nTPB = blockDim.x;
+
+	// t_max_rows_idx initialized as the first index handled by this thread
+	int t_max_rows_idx = tid;
+	for (int i = tid; i < cols; i += nTPB) {
+		if (fabs(d_data[bid * cols + t_max_rows_idx]) < fabs(d_data[bid * cols + i])) {
+			t_max_rows_idx = i;
+		}
+	}
+
+	// [todo] Possible optimization: only calculate the first rows in each two stride.
+	// Perform a reduction within the block to compute the final maximum value.
+	// sdata_maxRowsIdxABS_int store the index of maximum value in each block.
+	extern __shared__ int sdata_maxRowsIdxABS_int[];
+	sdata_maxRowsIdxABS_int[tid] = t_max_rows_idx;
+	__syncthreads();
+
+	for (int s = (MIN(cols, nTPB) >> 1); s > 0; s >>= 1) {
+		if (tid < s) {
+			if (fabs(d_data[bid * cols + sdata_maxRowsIdxABS_int[tid]]) < fabs(d_data[bid * cols + sdata_maxRowsIdxABS_int[tid + s]])) {
+				sdata_maxRowsIdxABS_int[tid] = sdata_maxRowsIdxABS_int[tid + s];
+			}
+		}
+		__syncthreads();
+	}
+
+	if (tid == 0) {
+		//mopt = maxPos + *h_xstar - NN;
+		d_max_rows_idx[bid] = sdata_maxRowsIdxABS_int[0] + binomialFixDevice(d_data + bid * cols, sdata_maxRowsIdxABS_int[0]) - (static_cast<float>(cols) / 2);
+	}
+}
+
+
+__global__ void genFreqMovParallel(cuComplex* d_freq_mov_vec, float* d_max_idx, int cols, int stride)
+{
+	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	int row_idx = blockIdx.y * stride * 2;
+
+	if (idx < cols) {
+		float val = -2 * PI_FLT * static_cast<float>(idx) * d_max_idx[row_idx] / static_cast<float>(cols);
+		d_freq_mov_vec[row_idx * cols + idx] = make_cuComplex(std::cos(val), std::sin(val));
+	}
+}
+
+
+__global__ void alignWithinStride(cuComplex* d_data, cuComplex* d_freq_mov_vec, int cols, int stride)
+{
+	int idx = blockIdx.x * blockDim.x + threadIdx.x;
+	int base_row_idx = blockIdx.z * stride * 2;
+	int row_idx = blockIdx.z * stride * 2 + stride + blockIdx.y;
+	
+	if (idx < cols) {
+		d_data[row_idx * cols + idx] = cuCmulf(d_data[row_idx * cols + idx], d_freq_mov_vec[base_row_idx * cols + idx]);
+	}
+}
+
+
+__global__ void genFreqCenteringVec(float* hamming, cuComplex* d_freq_centering_vec, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		d_freq_centering_vec[tid] = make_cuComplex(hamming[tid] * std::cos(PI_FLT * static_cast<float>(tid)), 0.0f);
+	}
+}
+
+
 //void rangeAlignment(cuComplex* d_data, float* hamming_window, const RadarParameters& paras, const CUDAHandle& handles)
 //{
 //	float scale_ifft = 1 / static_cast<float>(paras.range_num);  // scalar parameter used after cuFFT ifft transformation
@@ -100,278 +314,62 @@
 //}
 
 
-void rangeAlignmentParallel(cuComplex* d_data, float* hamming_window, const RadarParameters& paras, const CUDAHandle& handles)
-{
-	// * Kernel thread configuration
-	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
-	dim3 grid((paras.data_num + block.x - 1) / block.x);  // grid size
-	dim3 grid_one_echo((paras.range_num + block.x - 1) / block.x);
-
-	float scale_ifft = 1 / static_cast<float>(paras.range_num);  // scalar parameter used after cuFFT ifft transformation
-
-	// * Frequency centering
-	// generate frequency centering vector
-	cuComplex* d_freq_centering = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_freq_centering, sizeof(cuComplex) * paras.range_num));
-	genFreqCenteringVec << <grid_one_echo, block >> > (hamming_window, d_freq_centering, paras.range_num);
-	checkCudaErrors(cudaDeviceSynchronize());
-
-	elementwiseMultiplyRep << <grid, block >> > (d_freq_centering, d_data, d_data, paras.range_num, paras.data_num);
-	checkCudaErrors(cudaDeviceSynchronize());
-
-	// * Merge alignment process
-	// * Initializing memory
-	// space for ifft vector and frequency moving vector
-	cuComplex* d_com_temp = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_com_temp, sizeof(cuComplex) * paras.data_num));
-	// space for abs after ifft
-	float* d_ifft_abs = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_ifft_abs, sizeof(float) * paras.data_num));
-	// space for average profile
-	float* d_ave_profile = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_ave_profile, sizeof(float) * paras.data_num));
-	// space for ifft when calculating correlation
-	cuComplex* d_ave_profile_fft = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_ave_profile_fft, sizeof(cuComplex) * paras.echo_num * (paras.range_num / 2 + 1)));  // Hermitian symmetry
-	// space for storing max value index of every rows
-	float* d_max_idx = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_max_idx, sizeof(float) * paras.echo_num));
-
-	// * MergeAligning d_data till stride equal to echo_num
-	int stride = 1;
-	while (stride < paras.echo_num) {
-		// getting profile of d_data in time domain
-		// ifft
-		checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c, d_data, d_com_temp, CUFFT_INVERSE));
-		checkCudaErrors(cublasCsscal(handles.handle, paras.data_num, &scale_ifft, d_com_temp, 1));
-		// abs
-		elementwiseAbs << <grid, block >> > (d_com_temp, d_ifft_abs, paras.data_num);
-		checkCudaErrors(cudaDeviceSynchronize());
-
-		// calculating average profile of each stride
-		getAveProfileParallel << <dim3(paras.range_num, static_cast<int>(paras.echo_num / stride)), stride, stride * sizeof(float) >> > (d_ifft_abs, d_ave_profile, paras.echo_num, paras.range_num, stride);
-		checkCudaErrors(cudaDeviceSynchronize());
-
-		// calculating correlation of each two stride's average profile
-		// fft
-		checkCudaErrors(cufftExecR2C(handles.plan_all_echo_r2c, d_ave_profile, d_ave_profile_fft));
-		// conjugate multiply
-		conjMulAveProfile << <paras.range_num, paras.echo_num / (stride * 2) >> > (d_ave_profile_fft, paras.echo_num, paras.range_num / 2 + 1, stride);
-		checkCudaErrors(cudaDeviceSynchronize());
-		// ifft
-		checkCudaErrors(cufftExecC2R(handles.plan_all_echo_c2r, d_ave_profile_fft, d_ave_profile));
-		// ifftshift in each rows
-		ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_ave_profile, paras.range_num);
-		checkCudaErrors(cudaDeviceSynchronize());
-
-		// getting maximum position in each correlation vector
-		maxRowsIdxABS << <paras.echo_num, block, block.x * sizeof(int) >> > (d_ave_profile, d_max_idx, paras.echo_num, paras.range_num);
-		checkCudaErrors(cudaDeviceSynchronize());
-
-		// aligning the second stride in each two stride
-		// generating frequency moving vector
-		genFreqMovParallel << < dim3((paras.range_num + block.x - 1) / block.x, paras.echo_num / (stride * 2)), block >> > (d_com_temp, d_max_idx, paras.range_num, stride);
-		checkCudaErrors(cudaDeviceSynchronize());
-		// align
-		alignWithinStride << < dim3((paras.range_num + block.x - 1) / block.x, stride, paras.echo_num / (stride * 2)), block >> > (d_data, d_com_temp, paras.range_num, stride);
-
-		// continuing next align process
-		stride *= 2;
-	}
-
-	// * Applying ifft to all echoes of d_data
-	checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c, d_data, d_data, CUFFT_INVERSE));
-	checkCudaErrors(cublasCsscal(handles.handle, paras.data_num, &scale_ifft, d_data, 1));
-
-	// * Free allocated memory
-	checkCudaErrors(cudaFree(d_com_temp));
-	checkCudaErrors(cudaFree(d_ifft_abs));
-	checkCudaErrors(cudaFree(d_ave_profile));
-	checkCudaErrors(cudaFree(d_ave_profile_fft));
-	checkCudaErrors(cudaFree(d_max_idx));
-	checkCudaErrors(cudaFree(d_freq_centering));
-}
+//void getCorrelation(float* d_vec_corr, float* d_vec_a, float* d_vec_b, int len, cufftHandle plan_one_echo_r2c, cufftHandle plan_one_echo_c2r)
+//{
+//	// * configuring data layout 
+//	int fft_len = static_cast<int>(len / 2) + 1;
+//
+//	dim3 block(DEFAULT_THREAD_PER_BLOCK);
+//	dim3 grid((len + block.x - 1) / block.x);
+//	dim3 grid_fft((fft_len + block.x - 1) / block.x);
+//
+//	// * fft_a
+//	cuComplex* d_fft_a = nullptr;
+//	checkCudaErrors(cudaMalloc((void**)&d_fft_a, sizeof(cuComplex) * fft_len));
+//	checkCudaErrors(cufftExecR2C(plan_one_echo_r2c, d_vec_a, d_fft_a));
+//
+//	// * fft_b
+//	cuComplex* d_fft_b = nullptr;
+//	checkCudaErrors(cudaMalloc((void**)&d_fft_b, sizeof(cuComplex) * fft_len));
+//	checkCudaErrors(cufftExecR2C(plan_one_echo_r2c, d_vec_b, d_fft_b));
+//
+//	// * conj multiply, result store in fft_b
+//	elementwiseMultiplyConjA << <grid_fft, block >> > (d_fft_a, d_fft_b, d_fft_b, fft_len);
+//	checkCudaErrors(cudaDeviceSynchronize());
+//
+//	// * corr = ifft( conj(fft(a)) * fft(b) )
+//	checkCudaErrors(cufftExecC2R(plan_one_echo_c2r, d_fft_b, d_vec_corr));
+//
+//	// * fftshift(corr)
+//	swap_range<float> << <grid, block >> > (d_vec_corr, d_vec_corr + len / 2, len / 2);
+//	checkCudaErrors(cudaDeviceSynchronize());
+//
+//	// * free GPU allocated space
+//	checkCudaErrors(cudaFree(d_fft_a));
+//	checkCudaErrors(cudaFree(d_fft_b));
+//}
 
 
-__global__ void getAveProfileParallel(float* d_data, float* d_ave_profile, int rows, int cols, const int& stride)
-{
-	int tid = threadIdx.x;
-	int bidx = blockIdx.x;
-	int bidy = blockIdx.y;
-
-	// Calculating the square of each element in the stride
-	extern __shared__ float sdata[];
-	// rowIdx = bidy * blockDim.x + tid, colIdx = bidx
-	sdata[tid] = d_data[(bidy * blockDim.x + tid) * cols + bidx] * d_data[(bidy * blockDim.x + tid) * cols + bidx];
-	__syncthreads();
-
-	// Perform a reduction within the block to compute the final result
-	for (int s = (blockDim.x >> 1); s > 0; s >>= 1) {
-		if (tid < s) {
-			sdata[tid] += sdata[tid + s];
-		}
-		__syncthreads();
-	}
-
-	if (tid == 0) {
-		// rowIdx = bidy * blockDim.x, colIdx = bidx
-		d_ave_profile[bidy * blockDim.x * cols + bidx] = std::sqrtf(sdata[0]);
-	}
-}
+//__global__ void binomialFix(float* d_vec_corr, float* d_xstar, int maxPos)
+//{
+//	float f1 = d_vec_corr[maxPos - 1];
+//	float f2 = d_vec_corr[maxPos];
+//	float f3 = d_vec_corr[maxPos + 1];
+//
+//	float fa = (f1 + f3 - 2 * f2) / 2;
+//	float fb = (f3 - f1) / 2;
+//
+//	*d_xstar = -fb / (2 * fa);
+//}
 
 
-__global__ void conjMulAveProfile(cuComplex* d_data, int rows, int cols, int stride)
-{
-	int bid = blockIdx.x;
-	int tid = threadIdx.x;
-
-	// first stride: rowIdx = tid * stride * 2, colIdx = bid
-	// second stride: rowIdx = tid * stride * 2 + stride, colIdx = bid
-	int idx_1 = (tid * stride * 2) * cols + bid;
-	int idx_2 = (tid * stride * 2 + stride) * cols + bid;
-	d_data[idx_1] = cuCmulf(d_data[idx_1], cuConjf(d_data[idx_2]));
-}
-
-
-__device__ float binomialFixDevice(float* d_vec_corr, int maxPos)
-{
-	float f1 = d_vec_corr[maxPos - 1];
-	float f2 = d_vec_corr[maxPos];
-	float f3 = d_vec_corr[maxPos + 1];
-
-	float fa = (f1 + f3 - 2 * f2) / 2;
-	float fb = (f3 - f1) / 2;
-
-	return -fb / (2 * fa);
-}
-
-
-__global__ void maxRowsIdxABS(float* d_data, float* d_max_rows_idx, int rows, int cols)
-{
-	int bid = blockIdx.x;
-	int tid = threadIdx.x;
-	int nTPB = blockDim.x;
-
-	// t_max_rows_idx initialized as the first index handled by this thread
-	int t_max_rows_idx = tid;
-	for (int i = tid; i < cols; i += nTPB) {
-		if (fabs(d_data[bid * cols + t_max_rows_idx]) < fabs(d_data[bid * cols + i])) {
-			t_max_rows_idx = i;
-		}
-	}
-
-	// [todo] Possible optimization: only calculate the first rows in each two stride.
-	// Perform a reduction within the block to compute the final maximum value.
-	// sdata_max_rows_idx store the index of maximum value in each block.
-	extern __shared__ int sdata_max_rows_idx[];
-	sdata_max_rows_idx[tid] = t_max_rows_idx;
-	__syncthreads();
-
-	for (int s = (MIN(cols, nTPB) >> 1); s > 0; s >>= 1) {
-		if (tid < s) {
-			if (fabs(d_data[bid * cols + sdata_max_rows_idx[tid]]) < fabs(d_data[bid * cols + sdata_max_rows_idx[tid + s]])) {
-				sdata_max_rows_idx[tid] = sdata_max_rows_idx[tid + s];
-			}
-		}
-		__syncthreads();
-	}
-
-	if (tid == 0) {
-		//mopt = maxPos + *h_xstar - NN;
-		d_max_rows_idx[bid] = sdata_max_rows_idx[0] + binomialFixDevice(d_data + bid * cols, sdata_max_rows_idx[0]) - (static_cast<float>(cols) / 2);
-	}
-}
-
-
-__global__ void genFreqMovParallel(cuComplex* d_freq_mov_vec, float* d_max_idx, int cols, int stride)
-{
-	int idx = blockIdx.x * blockDim.x + threadIdx.x;
-	int row_idx = blockIdx.y * stride * 2;
-
-	if (idx < cols) {
-		float val = -2 * PI_FLT * static_cast<float>(idx) * d_max_idx[row_idx] / static_cast<float>(cols);
-		d_freq_mov_vec[row_idx * cols + idx] = make_cuComplex(std::cos(val), std::sin(val));
-	}
-}
-
-
-__global__ void alignWithinStride(cuComplex* d_data, cuComplex* d_freq_mov_vec, int cols, int stride)
-{
-	int idx = blockIdx.x * blockDim.x + threadIdx.x;
-	int base_row_idx = blockIdx.z * stride * 2;
-	int row_idx = blockIdx.z * stride * 2 + stride + blockIdx.y;
-	
-	if (idx < cols) {
-		d_data[row_idx * cols + idx] = cuCmulf(d_data[row_idx * cols + idx], d_freq_mov_vec[base_row_idx * cols + idx]);
-	}
-}
-
-
-__global__ void genFreqCenteringVec(float* hamming, cuComplex* d_freq_centering_vec, int len)
-{
-	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	if (tid < len) {
-		d_freq_centering_vec[tid] = make_cuComplex(hamming[tid] * std::cos(PI_FLT * static_cast<float>(tid)), 0.0f);  // todo: __constant__ PI_FLT variable ???
-	}
-}
-
-
-void getCorrelation(float* d_vec_corr, float* d_vec_a, float* d_vec_b, int len, cufftHandle plan_one_echo_r2c, cufftHandle plan_one_echo_c2r)
-{
-	// * configuring data layout 
-	int fft_len = static_cast<int>(len / 2) + 1;
-
-	dim3 block(DEFAULT_THREAD_PER_BLOCK);
-	dim3 grid((len + block.x - 1) / block.x);
-	dim3 grid_fft((fft_len + block.x - 1) / block.x);
-
-	// * fft_a
-	cuComplex* d_fft_a = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_fft_a, sizeof(cuComplex) * fft_len));
-	checkCudaErrors(cufftExecR2C(plan_one_echo_r2c, d_vec_a, d_fft_a));
-
-	// * fft_b
-	cuComplex* d_fft_b = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_fft_b, sizeof(cuComplex) * fft_len));
-	checkCudaErrors(cufftExecR2C(plan_one_echo_r2c, d_vec_b, d_fft_b));
-
-	// * conj multiply, result store in fft_b
-	elementwiseMultiplyConjA << <grid_fft, block >> > (d_fft_a, d_fft_b, d_fft_b, fft_len);
-	checkCudaErrors(cudaDeviceSynchronize());
-
-	// * corr = ifft( conj(fft(a)) * fft(b) )
-	checkCudaErrors(cufftExecC2R(plan_one_echo_c2r, d_fft_b, d_vec_corr));
-
-	// * fftshift(corr)
-	swap_range<float> << <grid, block >> > (d_vec_corr, d_vec_corr + len / 2, len / 2);
-	checkCudaErrors(cudaDeviceSynchronize());
-
-	// * free GPU allocated space
-	checkCudaErrors(cudaFree(d_fft_a));
-	checkCudaErrors(cudaFree(d_fft_b));
-}
-
-
-__global__ void binomialFix(float* d_vec_corr, float* d_xstar, int maxPos)
-{
-	float f1 = d_vec_corr[maxPos - 1];
-	float f2 = d_vec_corr[maxPos];
-	float f3 = d_vec_corr[maxPos + 1];
-
-	float fa = (f1 + f3 - 2 * f2) / 2;
-	float fb = (f3 - f1) / 2;
-
-	*d_xstar = -fb / (2 * fa);
-}
-
-
-__global__ void updateVecB(float* d_vec_b, cuComplex* d_data_i, int len)
-{
-	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	if (tid < len) {
-		d_vec_b[tid] = d_vec_b[tid] * 0.95f + cuCabsf(d_data_i[tid]);
-	}
-}
+//__global__ void updateVecB(float* d_vec_b, cuComplex* d_data_i, int len)
+//{
+//	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+//	if (tid < len) {
+//		d_vec_b[tid] = d_vec_b[tid] * 0.95f + cuCabsf(d_data_i[tid]);
+//	}
+//}
 
 
 __global__ void genFreqMovVec(cuComplex* d_freq_mov_vec, float shit_num, int len)
@@ -484,22 +482,23 @@ void HRRPCenter(cuComplex* d_data, const int& inter_length, const RadarParameter
 
 
 template <typename T>
-void circshift(T* d_data, int frag_len, int shift, int len)
+void circshiftTime(T* d_data, int frag_len, int shift, int len)
 {
 	T* d_data_temp = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_data_temp, sizeof(T) * len));
 
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
-	dim3 grid((len + block.x - 1) / block.x);  // grid size
-	circShiftKernel << <grid, block >> > (d_data, d_data_temp, frag_len, shift, len);
+
+	circShiftKernel << <dim3((len + block.x - 1) / block.x), block >> > (d_data, d_data_temp, frag_len, shift, len);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	checkCudaErrors(cudaMemcpy(d_data, d_data_temp, sizeof(T) * len, cudaMemcpyDeviceToDevice));
 	checkCudaErrors(cudaFree(d_data_temp));
 }
 
+
 template <typename T>
-__global__ void circShiftKernel(T* d_in, T* d_out, int frag_len, int shift_num, int len)
+__global__ void circShiftTimeKernel(T* d_in, T* d_out, int frag_len, int shift_num, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < len) {
