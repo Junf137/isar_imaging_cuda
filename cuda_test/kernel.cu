@@ -129,23 +129,74 @@ void dDataDisp(cuComplex* d_data, int rows, int cols)
 }
 
 
+__global__ void sum(float* vec, float* res, int len)
+{
+    int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+    for (int s = len >> 1; s > 0; s >>= 1) {
+        if (tid < s) {
+            vec[tid] += vec[tid + s];
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        *res = vec[0];
+    }
+}
+
+
+
 int main(int argc, char** argv)
 {
-    cuComplex* d_data = new cuComplex[3];
-    d_data[0] = make_cuComplex(0.0f, 0.0f);
-    d_data[1] = make_cuComplex(1.0f, 0.0f);
-    d_data[2] = make_cuComplex(2.0f, 0.0f);
+    int len = 8;
+    float* h_data = new float[len];
+    for (int i = 0; i < len; ++i) {
+        h_data[i] = static_cast<float>(i + 1);
+    }
 
-    cuComplex* d_data_tmp = new cuComplex[1];
+    float* d_data = nullptr;
+    checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(float) * len));
+    checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(float) * len, cudaMemcpyHostToDevice));
 
-    checkCudaErrors(cudaMemcpy(d_data_tmp, d_data, sizeof(cuComplex) * 1, cudaMemcpyHostToHost));
-    std::cout << d_data_tmp->x << " " << d_data_tmp->y << std::endl;
+    float* d_res = nullptr;
+    checkCudaErrors(cudaMalloc((void**)&d_res, sizeof(float) * 1));
 
-    checkCudaErrors(cudaMemcpy(d_data_tmp, d_data + 1, sizeof(cuComplex) * 1, cudaMemcpyHostToHost));
-    std::cout << d_data_tmp->x << " " << d_data_tmp->y << std::endl;
+    dim3 block(256);
+    dim3 grid((len + block.x - 1) / block.x);
+    sum << <grid, block >> > (d_data, d_res, len);
+    checkCudaErrors(cudaDeviceSynchronize());
 
-    checkCudaErrors(cudaMemcpy(d_data_tmp, d_data + 2, sizeof(cuComplex) * 1, cudaMemcpyHostToHost));
-    std::cout << d_data_tmp->x << " " << d_data_tmp->y << std::endl;
+    float* h_res = new float;
+    checkCudaErrors(cudaMemcpy(h_res, d_res, sizeof(float) * 1, cudaMemcpyDeviceToHost));
+
+    std::cout << *h_res << std::endl;
+
+
+    //int a = 0;
+    //float b = 0;
+    //std::cout << sizeof(char) << std::endl;
+    //std::cout << sizeof(int) << std::endl;
+    //std::cout << sizeof(&a) << std::endl;
+    //std::cout << sizeof(&b) << std::endl;
+    //std::cout << sizeof(float) << std::endl;
+    //std::cout << sizeof(double) << std::endl;
+
+    //cuComplex* d_data = new cuComplex[3];
+    //d_data[0] = make_cuComplex(0.0f, 0.0f);
+    //d_data[1] = make_cuComplex(1.0f, 0.0f);
+    //d_data[2] = make_cuComplex(2.0f, 0.0f);
+
+    //cuComplex* d_data_tmp = new cuComplex[1];
+
+    //checkCudaErrors(cudaMemcpy(d_data_tmp, d_data, sizeof(cuComplex) * 1, cudaMemcpyHostToHost));
+    //std::cout << d_data_tmp->x << " " << d_data_tmp->y << std::endl;
+
+    //checkCudaErrors(cudaMemcpy(d_data_tmp, d_data + 1, sizeof(cuComplex) * 1, cudaMemcpyHostToHost));
+    //std::cout << d_data_tmp->x << " " << d_data_tmp->y << std::endl;
+
+    //checkCudaErrors(cudaMemcpy(d_data_tmp, d_data + 2, sizeof(cuComplex) * 1, cudaMemcpyHostToHost));
+    //std::cout << d_data_tmp->x << " " << d_data_tmp->y << std::endl;
 
  //   int echo_num = 2;
  //   int range_num = 6;

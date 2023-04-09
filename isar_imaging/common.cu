@@ -2,7 +2,10 @@
 
 
 /* CUDAHandle Class */
-CUDAHandle::CUDAHandle(const int& echo_num, const int& range_num)
+CUDAHandle::CUDAHandle() { }
+
+
+void CUDAHandle::handleInit(const int& echo_num, const int& range_num)
 {
 	checkCudaErrors(cublasCreate(&handle));
 
@@ -34,7 +37,8 @@ CUDAHandle::CUDAHandle(const int& echo_num, const int& range_num)
 	checkCudaErrors(cufftPlan1d(&plan_all_echo_c2c_cut, RANGE_NUM_CUT, CUFFT_C2C, echo_num));
 }
 
-CUDAHandle::~CUDAHandle()
+
+void CUDAHandle::handleDest()
 {
 	checkCudaErrors(cublasDestroy(handle));
 
@@ -49,6 +53,9 @@ CUDAHandle::~CUDAHandle()
 	checkCudaErrors(cufftDestroy(plan_all_range_c2c_czt));
 	checkCudaErrors(cufftDestroy(plan_all_echo_c2c_cut));
 }
+
+
+CUDAHandle::~CUDAHandle() { }
 
 
 void getMax(cublasHandle_t handle, float* d_vec, int len, int* h_max_idx, float* h_max_val)
@@ -407,15 +414,12 @@ __global__ void sumRows(float* d_data, float* d_sum_rows, int rows, int cols)
 }
 
 
-void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& range_num_cut, const CUDAHandle& handles)
+void cutRangeProfile(cuComplex* d_data_cut, cuComplex* d_data, RadarParameters& paras, const int& range_num_cut, const CUDAHandle& handles)
 {
 	int data_num_cut = paras.echo_num * range_num_cut;
 
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
 	dim3 grid((data_num_cut + block.x - 1) / block.x);  // grid size
-
-	cuComplex* d_data_cut = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * data_num_cut));
 
 	// max(abs(d_data(1,:)))
 	int range_abs_max_idx = 0;
@@ -433,9 +437,7 @@ void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& rang
 	cutRangeProfileHelper << <grid, block >> > (d_data, d_data_cut, data_num_cut, offset_l, range_num_cut, paras.range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// point d_data to newly allocated memory block, updating values of paras
-	checkCudaErrors(cudaFree(d_data));
-	d_data = d_data_cut;
+	// updating values of paras
 	paras.range_num = range_num_cut;
 	paras.data_num = paras.echo_num * paras.range_num;
 }
@@ -603,7 +605,7 @@ float interpolate(const std::vector<int>& xData, const std::vector<float>& yData
 }
 
 
-int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
+int uniformSamplingFun(std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
 	const vec2D_DBL& dataN, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len)
 {
 	int window_end = window_head + sampling_stride * window_len - 1;
@@ -631,7 +633,6 @@ int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_DB
 	// DataNOut = DataN(window_head:sampling_stride:window_end, : );
 	dataNOut->assign(dataWFileSn->size(), std::vector<double>(8, 0));
 	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin(), [=](const int& x) {return dataN[x]; });
-	*flagDataEnd = 0;
 
 	return EXIT_SUCCESS;
 }
@@ -643,10 +644,15 @@ int nonUniformSamplingFun() {
 
 
 /* ioOperation Class */
-ioOperation::ioOperation(const std::string& dirPath, const int& fileType) :
-	m_dirPath(dirPath), m_fileType(fileType)
+ioOperation::ioOperation() { }
+
+
+void ioOperation::ioInit(const std::string& dir_path, const int& file_type)
 {
-	fs::directory_entry fsDirPath(m_dirPath);
+	m_dir_path = dir_path;
+	m_file_type = file_type;
+
+	fs::directory_entry fsDirPath(m_dir_path);
 	if (fsDirPath.is_directory() == false) {
 		std::cout << "Invalid directory name!\n";
 		return;
@@ -654,11 +660,11 @@ ioOperation::ioOperation(const std::string& dirPath, const int& fileType) :
 
 	const std::vector<std::string> FILE_TYPE = { "00_1100.wbd" , "00_1101.wbd" };
 	for (const auto& it : fs::directory_iterator{ fsDirPath }) {
-		std::string fileStr = it.path().string();
+		std::string file_str = it.path().string();
 
-		if (fileStr.substr(fileStr.length() - 11) == FILE_TYPE[fileType]) {
-			m_filePath = fileStr;
-			std::cout << "---* " << m_filePath << " *---\n\n";
+		if (file_str.substr(file_str.length() - 11) == FILE_TYPE[file_type]) {
+			m_file_path = file_str;
+			//std::cout << "---* " << m_file_path << " *---\n\n";
 			return;
 		}
 	}
@@ -671,9 +677,9 @@ ioOperation::~ioOperation() {}
 int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* frame_len, int* frame_num)
 {
 	std::ifstream ifs;
-	ifs.open(m_filePath, std::ios_base::in | std::ios_base::binary);
+	ifs.open(m_file_path, std::ios_base::in | std::ios_base::binary);
 	if (!ifs) {
-		std::cout << "Cannot open file " << m_filePath << " !\n";
+		std::cout << "Cannot open file " << m_file_path << " !\n";
 		return EXIT_FAILURE;
 	}
 
@@ -688,7 +694,7 @@ int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* fra
 	paras->band_width = static_cast<long long>(temp[13] * 1e6);  // signal band width
 	paras->Tp = static_cast<double>(temp[15] / 1e6);  // pulse width
 	paras->Fs = static_cast<int>((temp[17] % static_cast<int>(std::pow(2, 16))) * 1e6);  // sampling frequency
-	*frame_num = static_cast<int>(fs::file_size(fs::path(m_filePath))) / *frame_len;
+	*frame_num = static_cast<int>(fs::file_size(fs::path(m_file_path))) / *frame_len;
 
 	ifs.close();
 
@@ -696,13 +702,13 @@ int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* fra
 }
 
 
-int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, int* pulse_num_all, \
+int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, \
 	const RadarParameters& paras, const int& frame_len, const int& frame_num)
 {
 	std::ifstream ifs;
-	ifs.open(m_filePath, std::ios_base::in | std::ios_base::binary);
+	ifs.open(m_file_path, std::ios_base::in | std::ios_base::binary);
 	if (!ifs) {
-		std::cout << "Cannot open file " << m_filePath << " !\n";
+		std::cout << "Cannot open file " << m_file_path << " !\n";
 		return EXIT_FAILURE;
 	}
 
@@ -759,7 +765,6 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchInde
 	}
 
 	turnAngleLine(turnAngle, azimuthVec, pitchingVec);
-	*pulse_num_all = static_cast<int>(turnAngle->size());
 
 	ifs.close();
 
@@ -767,7 +772,7 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchInde
 }
 
 
-int ioOperation::getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
+int ioOperation::getKuDatafileSn(std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
 	const vec2D_DBL& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len, const bool& nonUniformSampling)
 {
 
@@ -775,7 +780,7 @@ int ioOperation::getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn
 		nonUniformSamplingFun();
 	}
 	else {
-		uniformSamplingFun(flagDataEnd, dataWFileSn, dataNOut, turnAngleOut, dataN, turnAngle, sampling_stride, window_head, window_len);
+		uniformSamplingFun(dataWFileSn, dataNOut, turnAngleOut, dataN, turnAngle, sampling_stride, window_head, window_len);
 	}
 
 	return EXIT_SUCCESS;
@@ -786,9 +791,9 @@ int ioOperation::getKuDataStretch(vec1D_COM_FLT* dataW, std::vector<int>* frameH
 	const vec2D_INT& stretchIndex, const std::vector<int>& dataWFileSn)
 {
 	std::ifstream ifs;
-	ifs.open(m_filePath, std::ios_base::in | std::ios_base::binary);
+	ifs.open(m_file_path, std::ios_base::in | std::ios_base::binary);
 	if (!ifs) {
-		std::cout << "Cannot open file " << m_filePath << " !\n";
+		std::cout << "Cannot open file " << m_file_path << " !\n";
 		return EXIT_FAILURE;
 	}
 

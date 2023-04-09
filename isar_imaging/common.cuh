@@ -5,10 +5,11 @@
 //#define DATA_WRITE_BACK_DATAW
 //#define DATA_WRITE_BACK_HPC
 //#define DATA_WRITE_BACK_HRRP
-#define DATA_WRITE_BACK_RA
+//#define DATA_WRITE_BACK_RA
 //#define DATA_WRITE_BACK_PC
 //#define DATA_WRITE_BACK_MTRC
 #define DATA_WRITE_BACK_FINAL
+//#define SEPARATE_TIMEING_
 
 
 #define MIN(a, b) (a<b) ? a : b
@@ -59,7 +60,6 @@ typedef std::vector<std::vector<std::complex<float>>> vec2D_COM_FLT;
 typedef thrust::complex<float> comThr;
 
 
-constexpr const char* DIR_PATH = "F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\";
 constexpr auto PI_FLT = 3.14159265358979f;
 constexpr auto PI_DBL = 3.14159265358979;
 constexpr auto LIGHT_SPEED = 300000000;
@@ -103,7 +103,11 @@ public:
 
 public:
 
-	CUDAHandle(const int& echo_num, const int& range_num);
+	CUDAHandle();
+
+	void handleInit(const int& echo_num, const int& range_num);
+
+	void handleDest();
 
 	~CUDAHandle();
 
@@ -391,11 +395,12 @@ __global__ void sumRows(float* d_data, float* d_sum_rows, int rows, int cols);
 /// <summary>
 /// Cutting range profile along echo dimension
 /// </summary>
+/// <param name="d_data_cut"></param>
 /// <param name="d_data"></param>
 /// <param name="paras"></param>
 /// <param name="range_num_cut"></param>
-/// <param name="handle"></param>
-void cutRangeProfile(cuComplex*& d_data, RadarParameters& paras, const int& range_num_cut, const CUDAHandle& handles);
+/// <param name="handles"></param>
+void cutRangeProfile(cuComplex* d_data_cut, cuComplex* d_data, RadarParameters& paras, const int& range_num_cut, const CUDAHandle& handles);
 
 
 /// <summary>
@@ -477,8 +482,19 @@ int turnAngleLine(std::vector<float>* turnAngle, const std::vector<float>& azimu
 float interpolate(const std::vector<int>& xData, const std::vector<float>& yData, const int& x, const bool& extrapolate);
 
 
-// [flag_data_end DataW_FileSn DataNOut TurnAngleOut] = UniformitySampling(DataN, TurnAngle, sampling_stride, WindowHead, WindowLength)
-int uniformSamplingFun(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
+/// <summary>
+/// 
+/// </summary>
+/// <param name="dataWFileSn"></param>
+/// <param name="dataNOut"></param>
+/// <param name="turnAngleOut"></param>
+/// <param name="dataN"></param>
+/// <param name="turnAngle"></param>
+/// <param name="sampling_stride"></param>
+/// <param name="window_head"></param>
+/// <param name="window_len"></param>
+/// <returns></returns>
+int uniformSamplingFun(std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
 	const vec2D_DBL& dataN, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len);
 
 
@@ -488,23 +504,32 @@ int nonUniformSamplingFun();
 
 /* ioOperation Class */
 /// <summary>
-/// Read radar echo signal into CPU memory.
+/// Reading radar signal into CPU memory.
 /// </summary>
 class ioOperation
 {
 private:
-	std::string m_dirPath;
-	std::string m_filePath;
-	int m_fileType;  // file polar type
+	std::string m_dir_path;
+	std::string m_file_path;
+	int m_file_type;  // file polar type
 
 public:
 	/// <summary>
-	/// Constructing object.
+	/// 
 	/// </summary>
-	/// <param name="dirPath"></param>
-	/// <param name="fileType"></param>
-	ioOperation(const std::string& dirPath, const int& fileType);
+	ioOperation();
 
+	/// <summary>
+	/// Finding target data file that matching given file_type in dir_path.
+	/// Validating the directory path.
+	/// </summary>
+	/// <param name="dir_path"></param>
+	/// <param name="file_type"></param>
+	void ioInit(const std::string& dir_path, const int& file_type);
+
+	/// <summary>
+	/// 
+	/// </summary>
 	~ioOperation();
 
 	/// <summary>
@@ -522,18 +547,16 @@ public:
 	/// <param name="dataN"></param>
 	/// <param name="stretchIndex"></param>
 	/// <param name="turnAngle"></param>
-	/// <param name="pulse_num_all"></param>
 	/// <param name="paras"></param>
 	/// <param name="frame_len"></param>
 	/// <param name="frame_num"></param>
 	/// <returns></returns>
-	int readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, int* pulse_num_all, \
+	int readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, \
 		const RadarParameters& paras, const int& frame_len, const int& frame_num);
 
 	/// <summary>
 	/// 
 	/// </summary>
-	/// <param name="flagDataEnd"></param>
 	/// <param name="dataWFileSn"></param>
 	/// <param name="dataNOut"></param>
 	/// <param name="turnAngleOut"></param>
@@ -545,7 +568,7 @@ public:
 	/// <param name="window_len"></param>
 	/// <param name="nonUniformSampling"></param>
 	/// <returns></returns>
-	int getKuDatafileSn(int* flagDataEnd, std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
+	int getKuDatafileSn(std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
 		const vec2D_DBL& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len, const bool& nonUniformSampling);
 
 	/// <summary>

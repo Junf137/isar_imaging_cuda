@@ -7,19 +7,33 @@
 #include "phase_adjustment.cuh"
 #include "mtrc.cuh"
 
+
+extern std::string DIR_PATH;
+
+
 /// <summary>
 /// 
 /// </summary>
+/// <param name="h_img"></param>
+/// <param name="d_data"></param>
+/// <param name="d_data_cut"></param>
+/// <param name="d_velocity"></param>
+/// <param name="d_hamming"></param>
+/// <param name="d_hrrp"></param>
+/// <param name="d_hamming_echoes"></param>
+/// <param name="d_img"></param>
 /// <param name="paras"></param>
+/// <param name="handles"></param>
 /// <param name="data_style"></param>
-/// <param name="dataW"> radar data </param>
+/// <param name="h_data"></param>
 /// <param name="dataNOut"></param>
-/// <param name="option_alignment"> range alignment method </param>
-/// <param name="option_phase"> phase adjustment method </param>
+/// <param name="option_alignment"></param>
+/// <param name="option_phase"></param>
 /// <param name="if_hpc"></param>
 /// <param name="if_mtrc"></param>
 /// <returns></returns>
-int ISAR_RD_Imaging_Main_Ku(RadarParameters& paras, const int& data_style, const vec1D_COM_FLT& dataW, const vec2D_DBL& dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc);
-
+int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_cut, double* d_velocity, float* d_hamming, cuComplex* d_hrrp, float* d_hamming_echoes, float* d_img, \
+	RadarParameters& paras, const CUDAHandle& handles, const int& data_style, const std::complex<float>* h_data, const vec2D_DBL& dataNOut, \
+	const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc);
 
 #endif // ISAR_MAIN_H_

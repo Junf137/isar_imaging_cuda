@@ -410,7 +410,7 @@ void HRRPCenter(cuComplex* d_data, const int& inter_length, const RadarParameter
 	// d_arp = sum(d_hrrp, 1) / echo_num
 	sumCols << <paras.range_num, 256, 256 * sizeof(float) >> > (d_hrrp, d_arp, paras.echo_num, paras.range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
-	float alpha = 1.0f / float(paras.echo_num);
+	float alpha = 1.0f / static_cast<float>(paras.echo_num);
 	checkCudaErrors(cublasSscal(handles.handle, paras.range_num, &alpha, d_arp, 1));
 
 	// * Calculate Noise Threshold
@@ -437,39 +437,39 @@ void HRRPCenter(cuComplex* d_data, const int& inter_length, const RadarParameter
 	int low_threshold_gray_idx = diff_min_idx + static_cast<int>(inter_length / 2);
 	float low_threshold_gray = arp1[low_threshold_gray_idx];
 
-	// indices = find( arp > low_threshold_gray )
-	thrust::device_vector<int> indices(paras.range_num);
-	int* d_indices = thrust::raw_pointer_cast(indices.data());
+	// idx_1 = find( arp > low_threshold_gray )
+	thrust::device_vector<int> idx_1(paras.range_num);
 
-	auto end = thrust::copy_if(thrust::make_counting_iterator(0), thrust::make_counting_iterator(int(paras.range_num)), \
-		arp.begin(), indices.begin(), thrust::placeholders::_1 > low_threshold_gray);
-	int indices_length = static_cast<int>(end - indices.begin());
-	indices.resize(indices_length);
+	auto end_idx_1 = thrust::copy_if(thrust::make_counting_iterator(0), thrust::make_counting_iterator(int(paras.range_num)), \
+		arp.begin(), idx_1.begin(), thrust::placeholders::_1 > low_threshold_gray);
+	int idx_1_len = static_cast<int>(end_idx_1 - idx_1.begin());
+	idx_1.resize(idx_1_len);
+	int* d_idx_1 = thrust::raw_pointer_cast(idx_1.data());
 
 	int WL = 8;  // window length
 	float* d_arp_ave = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_arp_ave, sizeof(float) * indices_length));
-	thrust::device_ptr<float> thr_d_arp_ave(d_arp_ave);
+	checkCudaErrors(cudaMalloc((void**)&d_arp_ave, sizeof(float) * idx_1_len));
+	thrust::device_ptr<float> thr_arp_ave = thrust::device_pointer_cast(d_arp_ave);
 
-	getARPMean << <(indices_length + block.x - 1) / block.x, block >> > (d_arp_ave, d_indices, d_arp, indices_length, WL, paras.range_num);
+	getARPMean << <(idx_1_len + block.x - 1) / block.x, block >> > (d_arp_ave, d_idx_1, d_arp, idx_1_len, WL, paras.range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// ind = find( APR_ave < low_threshold_gray )
-	thrust::device_vector<int> ind(indices_length);
-	int* d_ind = thrust::raw_pointer_cast(ind.data());
+	// idx_2 = find( APR_ave < low_threshold_gray )
+	thrust::device_vector<int> idx_2(idx_1_len);
 
-	auto end_min = thrust::copy_if(thrust::make_counting_iterator(0), thrust::make_counting_iterator(indices_length), \
-		thr_d_arp_ave, ind.begin(), thrust::placeholders::_1 < low_threshold_gray);
-	int ind_length = static_cast<int>(end_min - ind.begin());
-	ind.resize(ind_length);
+	auto end_idx_2 = thrust::copy_if(thrust::make_counting_iterator(0), thrust::make_counting_iterator(idx_1_len), \
+		thr_arp_ave, idx_2.begin(), thrust::placeholders::_1 < low_threshold_gray);
+	int idx_2_len = static_cast<int>(end_idx_2 - idx_2.begin());
+	idx_2.resize(idx_2_len);
+	int* d_idx_2 = thrust::raw_pointer_cast(idx_2.data());
 
-	if (ind_length != indices_length) {
-		// indices(ind) = 0
-		setNumInArray << <(ind_length + block.x - 1) / block.x, block >> > (d_indices, d_ind, 0, ind_length);
+	if (idx_2_len != idx_1_len) {
+		// idx_1(idx_2) = 0
+		setNumInArray << <(idx_2_len + block.x - 1) / block.x, block >> > (d_idx_1, d_idx_2, 0, idx_2_len);
 		checkCudaErrors(cudaDeviceSynchronize());
 
-		int mean_indice = thrust::reduce(thrust::device, indices.begin(), indices.end(), 0, thrust::plus<int>()) / (indices_length - ind_length);
-		int shift_num = -(mean_indice - static_cast<int>(paras.range_num / 2) + 1);  // todo: +1???
+		int mean_idx = thrust::reduce(thrust::device, idx_1.begin(), idx_1.end(), 0, thrust::plus<int>()) / (idx_1_len - idx_2_len);
+		int shift_num = -(mean_idx - static_cast<int>(paras.range_num / 2));  // todo: +1???
 
 		// * circshift(d_data,[0, shiftnum])
 		circshiftFreq(d_data, paras.range_num, static_cast<float>(shift_num), paras.data_num, handles.handle, handles.plan_all_echo_c2c);
@@ -537,29 +537,29 @@ void circshiftFreq(cuComplex* d_data, int frag_len, float shift, int len, cublas
 }
 
 
-__global__ void getARPMean(float* d_arp_ave, int* indices, float* arp, int indices_length, int WL, int range_num)
+__global__ void getARPMean(float* d_arp_ave, int* idx_1, float* arp, int idx_1_len, int WL, int range_num)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	float temp_sum = 0;
 
 	// [todo] possible optimization: assign a block to calculate mean value of a indice
-	if (indices[tid] - WL / 2 >= 0 && indices[tid] + WL / 2 <= range_num - 1) {
-		for (int index_ARP = indices[tid] - WL / 2; index_ARP <= indices[tid] + WL / 2; index_ARP++) {
+	if (idx_1[tid] - WL / 2 >= 0 && idx_1[tid] + WL / 2 <= range_num - 1) {
+		for (int index_ARP = idx_1[tid] - WL / 2; index_ARP <= idx_1[tid] + WL / 2; index_ARP++) {
 			temp_sum += arp[index_ARP];
 		}
 		temp_sum /= WL + 1;
 	}
-	else if (indices[tid] - WL / 2 < 0) {
-		for (int index_ARP = 0; index_ARP <= indices[tid] + WL / 2; index_ARP++) {
+	else if (idx_1[tid] - WL / 2 < 0) {
+		for (int index_ARP = 0; index_ARP <= idx_1[tid] + WL / 2; index_ARP++) {
 			temp_sum += arp[index_ARP];
 		}
-		temp_sum /= (static_cast<float>(WL) / 2 + indices[tid] + 1);
+		temp_sum /= (static_cast<float>(WL) / 2 + idx_1[tid] + 1);
 	}
-	else if (indices[tid] + WL / 2 > range_num - 1) {
-		for (int index_ARP = indices[tid] - WL / 2; index_ARP < range_num; index_ARP++) {
+	else if (idx_1[tid] + WL / 2 > range_num - 1) {
+		for (int index_ARP = idx_1[tid] - WL / 2; index_ARP < range_num; index_ARP++) {
 			temp_sum += arp[index_ARP];
 		}
-		temp_sum /= (static_cast<float>(range_num)-indices[tid] - (static_cast<float>(WL) / 2) - 1);
+		temp_sum /= (static_cast<float>(range_num)-idx_1[tid] - (static_cast<float>(WL) / 2) - 1);
 	}
 	d_arp_ave[tid] = temp_sum;
 

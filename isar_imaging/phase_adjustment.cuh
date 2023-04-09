@@ -46,7 +46,7 @@ void dopplerTracking(cuComplex* d_data_comp, cuComplex* d_phase, cuComplex* d_da
 /// <param name="echo_num"></param>
 /// <param name="range_num"></param>
 /// <param name="handle"></param>
-void fastEntropy(cuComplex*& d_data, const int& echo_num, const int& range_num, const CUDAHandle& handles);
+void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, const CUDAHandle& handles);
 
 
 /// <summary>

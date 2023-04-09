@@ -164,7 +164,7 @@ void dopplerTracking(cuComplex* d_data_comp, cuComplex* d_phase, cuComplex* d_da
 //}
 
 
-void fastEntropy(cuComplex*& d_data, const int& echo_num, const int& range_num, const CUDAHandle& handles)
+void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, const CUDAHandle& handles)
 {
 	int data_num = echo_num * range_num;
 
@@ -204,15 +204,17 @@ void fastEntropy(cuComplex*& d_data, const int& echo_num, const int& range_num, 
 	thrust::device_ptr<comThr> thr_phase_tmp = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_phase_tmp));
 	dopplerTracking(d_data_comp, d_phase_tmp, d_data, echo_num, range_num, true);
 
-	if (tgt_num < 5) {
-		// * Free allocated GPU memory and return
-		checkCudaErrors(cudaFree(d_data_abs));
-		checkCudaErrors(cudaFree(d_max_val));
-		checkCudaErrors(cudaFree(d_phase_tmp));
-		checkCudaErrors(cudaFree(d_data));
-		d_data = d_data_comp;
-		return;
-	}
+	//if (tgt_num < 5) {
+	//	checkCudaErrors(cudaMemcpy(d_data, d_data_comp, sizeof(cuComplex)* data_num, cudaMemcpyDeviceToDevice));
+
+	//	// * Free allocated GPU memory and return
+	//	checkCudaErrors(cudaFree(d_data_abs));
+	//	checkCudaErrors(cudaFree(d_max_val));
+	//	checkCudaErrors(cudaFree(d_phase_tmp));
+	//	checkCudaErrors(cudaFree(d_data_comp));
+	//	std::cout << "tgt_num < 5\n";
+	//	return;
+	//}
 
 	// d_img = fft(tmpData, [], 1);
 	cuComplex* d_img = nullptr;
