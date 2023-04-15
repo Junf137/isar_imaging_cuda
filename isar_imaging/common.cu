@@ -485,11 +485,11 @@ void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const RadarParameters& paras,
 
 
 float getTurnAngle(const float& azimuth1, const float& pitching1, const float& azimuth2, const float& pitching2) {
-	std::vector<float> vec_1({ std::sin(pitching1 / 180 * PI_FLT), \
+	vec1D_FLT vec_1({ std::sin(pitching1 / 180 * PI_FLT), \
 		std::cos(pitching1 / 180 * PI_FLT) * std::cos(azimuth1 / 180 * PI_FLT), \
 		std::cos(pitching1 / 180 * PI_FLT) * std::sin(azimuth1 / 180 * PI_FLT) });
 
-	std::vector<float> vec_2({ std::sin(pitching2 / 180 * PI_FLT), \
+	vec1D_FLT vec_2({ std::sin(pitching2 / 180 * PI_FLT), \
 		std::cos(pitching2 / 180 * PI_FLT) * std::cos(azimuth2 / 180 * PI_FLT), \
 		std::cos(pitching2 / 180 * PI_FLT) * std::sin(azimuth2 / 180 * PI_FLT) });
 
@@ -498,9 +498,9 @@ float getTurnAngle(const float& azimuth1, const float& pitching1, const float& a
 	return ret;
 }
 
-int turnAngleLine(std::vector<float>* turnAngle, const std::vector<float>& azimuth, const std::vector<float>& pitching) {
+int turnAngleLine(vec1D_FLT* turnAngle, const vec1D_FLT& azimuth, const vec1D_FLT& pitching) {
 
-	std::vector<int> idx;
+	vec1D_INT idx;
 	int pitchingSize = static_cast<int>(pitching.size());
 	for (int i = 0; i < pitchingSize - 1; ++i) {
 		if (std::abs(pitching[i + 1] - pitching[i]) > 0.2) {
@@ -508,16 +508,15 @@ int turnAngleLine(std::vector<float>* turnAngle, const std::vector<float>& azimu
 		}
 	}
 
-	std::vector<int> blkBeginNum;
-	std::vector<int> blkEndNum;
-	std::vector<int> blkLen;
+	vec1D_INT blkBeginNum;
+	vec1D_INT blkEndNum;
+	vec1D_INT blkLen;
 	int idxSize = idx.empty() ? 1 : static_cast<int>(idx.size());
 
 	blkBeginNum.insert(blkBeginNum.cend(), -1);
 	blkBeginNum.insert(blkBeginNum.cend(), idx.begin(), idx.end());
 	int blkSize = static_cast<int>(blkBeginNum.size());
-	std::for_each(blkBeginNum.begin(), blkBeginNum.end(), [](int& x) {x++; });  // todo: add parallel execution policy
-
+	std::for_each(blkBeginNum.begin(), blkBeginNum.end(), [](int& x) {x++; });
 
 	blkEndNum.insert(blkEndNum.cend(), idx.begin(), idx.end());
 	blkEndNum.insert(blkEndNum.cend(), pitchingSize - 1);
@@ -543,23 +542,23 @@ int turnAngleLine(std::vector<float>* turnAngle, const std::vector<float>& azimu
 			turnAngle->at(i) = std::abs(turnAngle->at(i));
 		}
 		if (N >= 21) {
-			std::vector<int> x = [=]() {
-				std::vector<int> v;
+			vec1D_INT x = [=]() {
+				vec1D_INT v;
 				for (int i = 0; (i + stride) <= N; i += stride) {
 					v.push_back(i);
 				}
 				return v;
 			}();  // todo: range generate
-			std::vector<float> Y = [=]() {
-				std::vector<float> v;
+			vec1D_FLT Y = [=]() {
+				vec1D_FLT v;
 				int xSize = static_cast<int>(x.size());
 				for (int i = 0; i < xSize; ++i) {  // interpolation movement
 					v.push_back(turnAngle->at(x[i]));
 				}
 				return v;
 			}();
-			std::vector<float> turnAngleInterp = [=]() {
-				std::vector<float> v;
+			vec1D_FLT turnAngleInterp = [=]() {
+				vec1D_FLT v;
 				for (int i = 0; i < N; ++i) {
 					v.push_back(interpolate(x, Y, i, false));
 				}
@@ -580,7 +579,7 @@ int turnAngleLine(std::vector<float>* turnAngle, const std::vector<float>& azimu
 }
 
 
-float interpolate(const std::vector<int>& xData, const std::vector<float>& yData, const int& x, const bool& extrapolate) {
+float interpolate(const vec1D_INT& xData, const vec1D_FLT& yData, const int& x, const bool& extrapolate) {
 	int size = static_cast<int>(xData.size());
 
 	int i = 0;  // find left end of interval for interpolation
@@ -605,40 +604,25 @@ float interpolate(const std::vector<int>& xData, const std::vector<float>& yData
 }
 
 
-int uniformSamplingFun(std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
-	const vec2D_DBL& dataN, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len)
+int uniformSampling(vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnAngleOut, \
+	const vec2D_DBL& dataN, const vec1D_FLT& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len)
 {
-	int window_end = window_head + sampling_stride * window_len - 1;
-	if (window_end > turnAngle.size()) {
-		// flag_data_end = 1;
-		// DataW_FileSn = [];
-		// TurnAngleOut = [];
-		// DataNOut = [];
-		// return;
+	// dataWFileSn = window_head:sampling_stride:window_end;
+	for (int i = 0; i < window_len; ++i) {
+		dataWFileSn->at(i) = window_head + i * sampling_stride;
 	}
 
-	// 	DataW_FileSn = window_head:sampling_stride:window_end;
-	*dataWFileSn = [=]() {  // todo: range generate
-		std::vector<int> v;
-		for (int i = window_head; (i + sampling_stride) <= window_end + 1; ++i) {
-			v.push_back(i);
-		}
-		return v;
-	}();
+	// DataNOut = DataN(window_head:sampling_stride:window_end, : );
+	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin(), [&](const int& x) {return dataN[x]; });
 
 	// TurnAngleOut = abs(TurnAngle(window_head:sampling_stride:window_end));
-	turnAngleOut->assign(dataWFileSn->size(), 0);
-	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), turnAngleOut->begin(), [=](const int& x) {return std::abs(turnAngle[x]); });
-
-	// DataNOut = DataN(window_head:sampling_stride:window_end, : );
-	dataNOut->assign(dataWFileSn->size(), std::vector<double>(8, 0));
-	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin(), [=](const int& x) {return dataN[x]; });
+	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), turnAngleOut->begin(), [&](const int& x) {return std::abs(turnAngle[x]); });
 
 	return EXIT_SUCCESS;
 }
 
 
-int nonUniformSamplingFun() {
+int nonUniformSampling() {
 	return EXIT_SUCCESS;
 }
 
@@ -654,7 +638,7 @@ void ioOperation::ioInit(const std::string& dir_path, const int& file_type)
 
 	fs::directory_entry fsDirPath(m_dir_path);
 	if (fsDirPath.is_directory() == false) {
-		std::cout << "Invalid directory name!\n";
+		std::cout << "[ioInit/WARN] Invalid directory name!\n";
 		return;
 	}
 
@@ -674,19 +658,19 @@ void ioOperation::ioInit(const std::string& dir_path, const int& file_type)
 ioOperation::~ioOperation() {}
 
 
-int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* frame_len, int* frame_num)
+int ioOperation::getSystemParas(RadarParameters* paras, int* frame_len, int* frame_num)
 {
 	std::ifstream ifs;
 	ifs.open(m_file_path, std::ios_base::in | std::ios_base::binary);
 	if (!ifs) {
-		std::cout << "Cannot open file " << m_file_path << " !\n";
+		std::cout << "[getSystemParas/WARN] Cannot open file " << m_file_path << " !\n";
 		return EXIT_FAILURE;
 	}
 
 	ifs.seekg(0, ifs.beg);
 
 	uint32_t temp[36]{};
-	ifs.read((char*)&temp, sizeof(uint32_t) * 36);
+	ifs.read((char*)&temp, sizeof(uint32_t) * 36);  // 144 bytes in total
 
 	// [Caution] Possibly bits overflow
 	*frame_len = static_cast<int>(temp[4] * 4);  // length of frame, including frame head and orthogonal demodulation data.(unit: Byte)
@@ -694,7 +678,7 @@ int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* fra
 	paras->band_width = static_cast<long long>(temp[13] * 1e6);  // signal band width
 	paras->Tp = static_cast<double>(temp[15] / 1e6);  // pulse width
 	paras->Fs = static_cast<int>((temp[17] % static_cast<int>(std::pow(2, 16))) * 1e6);  // sampling frequency
-	*frame_num = static_cast<int>(fs::file_size(fs::path(m_file_path))) / *frame_len;
+	*frame_num = static_cast<int>(fs::file_size(fs::path(m_file_path))) / *frame_len;  // total frame number in file
 
 	ifs.close();
 
@@ -702,23 +686,23 @@ int ioOperation::getSystemParasFirstFileStretch(RadarParameters* paras, int* fra
 }
 
 
-int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, \
+int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_INT* stretchIndex, vec1D_FLT* turnAngle, \
 	const RadarParameters& paras, const int& frame_len, const int& frame_num)
 {
 	std::ifstream ifs;
 	ifs.open(m_file_path, std::ios_base::in | std::ios_base::binary);
 	if (!ifs) {
-		std::cout << "Cannot open file " << m_file_path << " !\n";
+		std::cout << "[readKuIFDSALLNBStretch/WARN] Cannot open file " << m_file_path << " !\n";
 		return EXIT_FAILURE;
 	}
 
-	dataN->assign(frame_num, std::vector<double>(8, 0));
-	stretchIndex->assign(frame_num, std::vector<int>(2, 0));
+	dataN->resize(frame_num);
+	stretchIndex->resize(frame_num);
 
-	std::vector<float> azimuthVec(frame_num, 0);  // todo: expanding to double?
-	std::vector<float> pitchingVec(frame_num, 0);
+	vec1D_FLT azimuthVec(frame_num);  // todo: expanding to double?
+	vec1D_FLT pitchingVec(frame_num);
 
-	uint64_t sysTime = 0;
+	//uint64_t sysTime = 0;
 	uint32_t headerData[11]{};
 
 	double range = 0;  // unit: m
@@ -726,15 +710,16 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchInde
 	double azimuth = 0;
 	double pitching = 0;
 
-	float timeYear = 0;  // only need to be read once
-	float timeMonth = 0;
-	float timeDay = 0;
+	//float timeYear = 0;  // only need to be read once
+	//float timeMonth = 0;
+	//float timeDay = 0;
 	for (int i = 0; i < frame_num; i++) {
-		ifs.seekg(i * frame_len + 40, ifs.beg);
+		stretchIndex->at(i) = i * frame_len + 256;
 
-		stretchIndex->at(i) = std::vector<int>({ i * frame_len + 256, frame_len });
+		//ifs.seekg(i * frame_len + 40, ifs.beg);
+		ifs.seekg(i * frame_len + 48, ifs.beg);
 
-		ifs.read((char*)&sysTime, sizeof(uint64_t));
+		//ifs.read((char*)&sysTime, sizeof(uint64_t));
 
 		ifs.read((char*)&headerData, sizeof(uint32_t) * 11);
 
@@ -752,14 +737,15 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchInde
 		pitching = (pitching - (pitching > std::pow(2, 31) ? std::pow(2, 32) : 0)) * (360.0 / std::pow(2, 24));
 		pitching += (pitching < 0 ? 360.0 : 0);
 
-		ifs.seekg(i * frame_len + 32, ifs.beg);
+		//ifs.seekg(i * frame_len + 32, ifs.beg);
+		//if (i == 0) {
+		//	ifs.read((char*)&timeYear, sizeof(uint16_t));
+		//	ifs.read((char*)&timeMonth, sizeof(uint8_t));
+		//	ifs.read((char*)&timeDay, sizeof(uint8_t));
+		//}
 
-		if (i == 0) {
-			ifs.read((char*)&timeYear, sizeof(uint16_t));
-			ifs.read((char*)&timeMonth, sizeof(uint8_t));
-			ifs.read((char*)&timeDay, sizeof(uint8_t));
-		}
-		dataN->at(i) = std::vector<double>({ range, velocity, azimuth, pitching, static_cast<double>(sysTime), static_cast<double>(timeYear), static_cast<double>(timeMonth), static_cast<double>(timeDay) });
+		//dataN->at(i) = vec1D_DBL({ range, velocity, azimuth, pitching, static_cast<double>(sysTime), static_cast<double>(timeYear), static_cast<double>(timeMonth), static_cast<double>(timeDay) });
+		dataN->at(i) = vec1D_DBL({ range, velocity, azimuth, pitching });
 		azimuthVec[i] = static_cast<float>(azimuth);
 		pitchingVec[i] = static_cast<float>(pitching);
 	}
@@ -772,62 +758,41 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchInde
 }
 
 
-int ioOperation::getKuDatafileSn(std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
-	const vec2D_DBL& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len, const bool& nonUniformSampling)
-{
-
-	if (nonUniformSampling == true) {
-		nonUniformSamplingFun();
-	}
-	else {
-		uniformSamplingFun(dataWFileSn, dataNOut, turnAngleOut, dataN, turnAngle, sampling_stride, window_head, window_len);
-	}
-
-	return EXIT_SUCCESS;
-}
-
-
-int ioOperation::getKuDataStretch(vec1D_COM_FLT* dataW, std::vector<int>* frameHeader, \
-	const vec2D_INT& stretchIndex, const std::vector<int>& dataWFileSn)
+int ioOperation::getKuDataStretch(vec1D_COM_FLT* dataW, vec1D_INT* frameHeader, \
+	const vec1D_INT& stretchIndex, const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len)
 {
 	std::ifstream ifs;
 	ifs.open(m_file_path, std::ios_base::in | std::ios_base::binary);
 	if (!ifs) {
-		std::cout << "Cannot open file " << m_file_path << " !\n";
+		std::cout << "[getKuDataStretch/WARN] Cannot open file " << m_file_path << " !\n";
 		return EXIT_FAILURE;
 	}
 
-	int dataWFileSnSize = static_cast<int>(dataWFileSn.size());  // row of dataW
-	for (int i = 0; i < dataWFileSnSize; ++i) {
+	int dataADTempSize = (frame_len - 256) / 2;
+	int16_t* dataADTemp = new int16_t[dataADTempSize];
+	
+	for (int i = 0; i < window_len; ++i) {
 		//fseek(fid1, StretchIndex(DataW_FileSn(i), 1), 'bof');
-		ifs.seekg(stretchIndex[dataWFileSn[i]][0], ifs.beg);
+		ifs.seekg(stretchIndex[dataWFileSn[i]], ifs.beg);
 
 		//DataAD = fread(fid1, (StretchIndex(DataW_FileSn(i), 2) - 256) / 2, 'int16');
-		int dataADTempSize = (stretchIndex[dataWFileSn[i]][1] - 256) / 2;  // todo: frame_len???
-		int16_t* dataADTemp = new int16_t[dataADTempSize];
 		ifs.read((char*)dataADTemp, dataADTempSize * sizeof(int16_t));
-
-
-		if (i == 0) {
-			dataW->resize(dataWFileSnSize * (dataADTempSize / 2));
-		}
 
 		//data_AD = DataAD(1:2 : end) + 1i * DataAD(2:2 : end);
 		//DataW(i, :) = data_AD.';
 		for (int j = 0; (j + 1) < dataADTempSize; j += 2) {
 			dataW->at(i * (dataADTempSize / 2) + (j / 2)) = std::complex<float>(static_cast<float>(dataADTemp[j]), static_cast<float>(dataADTemp[j + 1]));
 		}
-
-		delete[] dataADTemp;
-		dataADTemp = nullptr;
 	}
+	delete[] dataADTemp;
+	dataADTemp = nullptr;
 
 	/*
 	fseek(fid1, StretchIndex(DataW_FileSn(1), 1) - 256, 'bof');
 	DataRead = fread(fid1, 108, 'uint8');
 	FrameHeader = [DataRead(1:12, 1); DataRead(101:104, 1); DataRead(77:92, 1); DataRead(97:100, 1); DataRead(33:38, 1); DataRead(31, 1); DataRead(105:108, 1); DataRead(61:64, 1); ];
 	*/
-	ifs.seekg(stretchIndex[dataWFileSn[0]][0] - 256, ifs.beg);
+	ifs.seekg(stretchIndex[dataWFileSn[0]] - 256, ifs.beg);
 
 	uint8_t frameHeaderTemp[108]{};
 	ifs.read((char*)&frameHeaderTemp, sizeof(frameHeaderTemp));
@@ -840,6 +805,8 @@ int ioOperation::getKuDataStretch(vec1D_COM_FLT* dataW, std::vector<int>* frameH
 	frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 30, frameHeaderTemp + 31);
 	frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 104, frameHeaderTemp + 108);
 	frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 60, frameHeaderTemp + 64);
+
+	ifs.close();
 
 	return EXIT_SUCCESS;
 }

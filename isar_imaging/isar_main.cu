@@ -26,7 +26,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 		// * Retrieving Velocity Data
 		double* h_velocity = new double[paras.echo_num];
-		std::transform(dataNOut.cbegin(), dataNOut.cend(), h_velocity, [](const std::vector<double>& v) {return v[1]; });
+		std::transform(dataNOut.cbegin(), dataNOut.cend(), h_velocity, [](const vec1D_DBL& v) {return v[1]; });
 		checkCudaErrors(cudaMemcpy(d_velocity, h_velocity, sizeof(double) * paras.echo_num, cudaMemcpyHostToDevice));
 
 		// * Starting HPC
@@ -130,8 +130,8 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	//// * Retrieving Azimuth and Pitch Data
 	//double* h_azimuth = new double[paras.echo_num];
 	//double* h_pitch = new double[paras.echo_num];
-	//std::transform(dataNOut.cbegin(), dataNOut.cend(), h_azimuth, [](std::vector<double> v) {return v[2]; });
-	//std::transform(dataNOut.cbegin(), dataNOut.cend(), h_pitch, [](std::vector<double> v) {return v[3]; });
+	//std::transform(dataNOut.cbegin(), dataNOut.cend(), h_azimuth, [](vec1D_DBL v) {return v[2]; });
+	//std::transform(dataNOut.cbegin(), dataNOut.cend(), h_pitch, [](vec1D_DBL v) {return v[3]; });
 
 	//// * Range Variant Phase Compensation [todo] optional
 	//rangeVariantPhaseComp(d_data_cut, h_azimuth, h_pitch, paras, handles);

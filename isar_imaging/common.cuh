@@ -52,8 +52,11 @@
 #include <filesystem>
 
 
+typedef std::vector<int> vec1D_INT;
 typedef std::vector<std::vector<int>> vec2D_INT;
+typedef std::vector<float> vec1D_FLT;
 typedef std::vector<std::vector<float>> vec2D_FLT;
+typedef std::vector<double> vec1D_DBL;
 typedef std::vector<std::vector<double>> vec2D_DBL;
 typedef std::vector<std::complex<float>> vec1D_COM_FLT;
 typedef std::vector<std::vector<std::complex<float>>> vec2D_COM_FLT;
@@ -67,6 +70,7 @@ constexpr auto RANGE_NUM_CUT = 512;
 constexpr auto FAST_ENTROPY_ITERATION_NUM = 120;
 constexpr auto MAX_THREAD_PER_BLOCK = 1024;
 constexpr auto DEFAULT_THREAD_PER_BLOCK = 256;
+
 
 namespace fs = std::filesystem;
 
@@ -466,7 +470,7 @@ float getTurnAngle(const float& azimuth1, const float& pitching1, const float& a
 /// <param name="azimuth">  </param>
 /// <param name="pitching">  </param>
 /// <returns></returns>
-int turnAngleLine(std::vector<float>* turnAngle, const std::vector<float>& azimuth, const std::vector<float>& pitching);
+int turnAngleLine(vec1D_FLT* turnAngle, const vec1D_FLT& azimuth, const vec1D_FLT& pitching);
 
 
 /// <summary>
@@ -479,7 +483,7 @@ int turnAngleLine(std::vector<float>* turnAngle, const std::vector<float>& azimu
 /// <param name="x"> interpolation point </param>
 /// <param name="extrapolate"> option for extrapolate </param>
 /// <returns></returns>
-float interpolate(const std::vector<int>& xData, const std::vector<float>& yData, const int& x, const bool& extrapolate);
+float interpolate(const vec1D_INT& xData, const vec1D_FLT& yData, const int& x, const bool& extrapolate);
 
 
 /// <summary>
@@ -494,12 +498,12 @@ float interpolate(const std::vector<int>& xData, const std::vector<float>& yData
 /// <param name="window_head"></param>
 /// <param name="window_len"></param>
 /// <returns></returns>
-int uniformSamplingFun(std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
-	const vec2D_DBL& dataN, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len);
+int uniformSampling(vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnAngleOut, \
+	const vec2D_DBL& dataN, const vec1D_FLT& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len);
 
 
 //function [flag_data_end DataW_FileSn DataNOut TurnAngleOut] = NonUniformitySampling(DataN, RadarParameters, TurnAngle, start, M)
-int nonUniformSamplingFun();
+int nonUniformSampling();
 
 
 /* ioOperation Class */
@@ -539,7 +543,7 @@ public:
 	/// <param name="frame_len"> single frame length </param>
 	/// <param name="frame_num"> total frame number</param>
 	/// <returns></returns>
-	int getSystemParasFirstFileStretch(RadarParameters* paras, int* frame_len, int* frame_num);
+	int getSystemParas(RadarParameters* paras, int* frame_len, int* frame_num);
 
 	/// <summary>
 	/// 
@@ -551,25 +555,8 @@ public:
 	/// <param name="frame_len"></param>
 	/// <param name="frame_num"></param>
 	/// <returns></returns>
-	int readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec2D_INT* stretchIndex, std::vector<float>* turnAngle, \
+	int readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_INT* stretchIndex, vec1D_FLT* turnAngle, \
 		const RadarParameters& paras, const int& frame_len, const int& frame_num);
-
-	/// <summary>
-	/// 
-	/// </summary>
-	/// <param name="dataWFileSn"></param>
-	/// <param name="dataNOut"></param>
-	/// <param name="turnAngleOut"></param>
-	/// <param name="dataN"></param>
-	/// <param name="paras"></param>
-	/// <param name="turnAngle"></param>
-	/// <param name="sampling_stride"></param>
-	/// <param name="window_head"></param>
-	/// <param name="window_len"></param>
-	/// <param name="nonUniformSampling"></param>
-	/// <returns></returns>
-	int getKuDatafileSn(std::vector<int>* dataWFileSn, vec2D_DBL* dataNOut, std::vector<float>* turnAngleOut, \
-		const vec2D_DBL& dataN, const RadarParameters& paras, const std::vector<float>& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len, const bool& nonUniformSampling);
 
 	/// <summary>
 	/// 
@@ -577,10 +564,12 @@ public:
 	/// <param name="dataW"></param>
 	/// <param name="frameHeader"></param>
 	/// <param name="stretchIndex"></param>
+	/// <param name="frame_len"></param>
 	/// <param name="dataWFileSn"></param>
+	/// <param name="window_len"></param>
 	/// <returns></returns>
-	int getKuDataStretch(vec1D_COM_FLT* dataW, std::vector<int>* frameHeader, \
-		const vec2D_INT& stretchIndex, const std::vector<int>& dataWFileSn);
+	int getKuDataStretch(vec1D_COM_FLT* dataW, vec1D_INT* frameHeader, \
+		const vec1D_INT& stretchIndex, const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len);
 
 	/// <summary>
 	/// write data reside in CPU memory back to outFilePath
