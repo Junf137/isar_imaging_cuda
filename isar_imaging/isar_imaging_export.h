@@ -37,10 +37,10 @@ extern "C" DLL_EXPORT_API int gpuDevInit();
 /// <param name="turnAngle"></param>
 /// <param name="frame_len"></param>
 /// <param name="frame_num"></param>
-/// <param name="dir_path"></param>
+/// <param name="file_path"></param>
 /// <returns></returns>
 extern "C" DLL_EXPORT_API int dataParsing(vec2D_DBL * dataN, vec1D_INT * stretchIndex, vec1D_FLT * turnAngle, int* frame_len, int* frame_num, \
-	const std::string & dir_path);
+	const std::string & file_path);
 
 
 /// <summary>

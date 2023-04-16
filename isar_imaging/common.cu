@@ -631,27 +631,21 @@ int nonUniformSampling() {
 ioOperation::ioOperation() { }
 
 
-void ioOperation::ioInit(const std::string& dir_path, const int& file_type)
+void ioOperation::ioInit(std::string* INTERMEDIATE_DIR, const std::string& file_path, const int& file_type)
 {
-	m_dir_path = dir_path;
+	m_file_path = file_path;
 	m_file_type = file_type;
 
-	fs::directory_entry fsDirPath(m_dir_path);
-	if (fsDirPath.is_directory() == false) {
-		std::cout << "[ioInit/WARN] Invalid directory name!\n";
+	// validating file_path
+	fs::path fs_file_path(m_file_path);
+	if (fs::is_regular_file(fs_file_path) == false) {
+		std::cout << "[ioInit/WARN] Invalid file path!\n";
 		return;
 	}
+	m_dir_path = fs_file_path.parent_path().string();
 
-	const std::vector<std::string> FILE_TYPE = { "00_1100.wbd" , "00_1101.wbd" };
-	for (const auto& it : fs::directory_iterator{ fsDirPath }) {
-		std::string file_str = it.path().string();
-
-		if (file_str.substr(file_str.length() - 11) == FILE_TYPE[file_type]) {
-			m_file_path = file_str;
-			//std::cout << "---* " << m_file_path << " *---\n\n";
-			return;
-		}
-	}
+	// assign global variables
+	*INTERMEDIATE_DIR = m_dir_path + std::string("\\intermediate\\");
 }
 
 
@@ -816,7 +810,7 @@ int ioOperation::writeFile(const std::string& outFilePath, const cuComplex* data
 {
 	std::ofstream ofs(outFilePath);
 	if (!ofs.is_open()) {
-		std::cout << "Cannot open the file\n" << std::endl;
+		std::cout << "[writeFile/WARN] Cannot open the file: " << outFilePath << std::endl;
 		return EXIT_FAILURE;
 	}
 
@@ -833,7 +827,7 @@ int ioOperation::writeFile(const std::string& outFilePath, const cuDoubleComplex
 {
 	std::ofstream ofs(outFilePath);
 	if (!ofs.is_open()) {
-		std::cout << "Cannot open the file\n" << std::endl;
+		std::cout << "[writeFile/WARN] Cannot open the file: " << outFilePath << std::endl;
 		return EXIT_FAILURE;
 	}
 
@@ -850,7 +844,7 @@ int ioOperation::writeFile(const std::string& outFilePath, const float* data, co
 {
 	std::ofstream ofs(outFilePath);
 	if (!ofs.is_open()) {
-		std::cout << "Cannot open the file\n" << std::endl;
+		std::cout << "[writeFile/WARN] Cannot open the file: " << outFilePath << std::endl;
 		return EXIT_FAILURE;
 	}
 
@@ -867,7 +861,7 @@ int ioOperation::writeFile(const std::string& outFilePath, const double* data, c
 {
 	std::ofstream ofs(outFilePath);
 	if (!ofs.is_open()) {
-		std::cout << "Cannot open the file\n" << std::endl;
+		std::cout << "[writeFile/WARN] Cannot open the file: " << outFilePath << std::endl;
 		return EXIT_FAILURE;
 	}
 

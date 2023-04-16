@@ -8,6 +8,7 @@
 #include <cufft.h>
 #include <complex>
 #include <type_traits>
+#include <filesystem>
 
 #include <cuComplex.h>
 #include <thrust/device_ptr.h>
@@ -149,28 +150,33 @@ __global__ void sum(float* vec, float* res, int len)
 
 int main(int argc, char** argv)
 {
-    int len = 8;
-    float* h_data = new float[len];
-    for (int i = 0; i < len; ++i) {
-        h_data[i] = static_cast<float>(i + 1);
-    }
+    // print current directory using std::filesystem
+    std::cout << std::filesystem::current_path() << std::endl;
 
-    float* d_data = nullptr;
-    checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(float) * len));
-    checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(float) * len, cudaMemcpyHostToDevice));
 
-    float* d_res = nullptr;
-    checkCudaErrors(cudaMalloc((void**)&d_res, sizeof(float) * 1));
+    // * test for sum
+    //int len = 8;
+    //float* h_data = new float[len];
+    //for (int i = 0; i < len; ++i) {
+    //    h_data[i] = static_cast<float>(i + 1);
+    //}
 
-    dim3 block(256);
-    dim3 grid((len + block.x - 1) / block.x);
-    sum << <grid, block >> > (d_data, d_res, len);
-    checkCudaErrors(cudaDeviceSynchronize());
+    //float* d_data = nullptr;
+    //checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(float) * len));
+    //checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(float) * len, cudaMemcpyHostToDevice));
 
-    float* h_res = new float;
-    checkCudaErrors(cudaMemcpy(h_res, d_res, sizeof(float) * 1, cudaMemcpyDeviceToHost));
+    //float* d_res = nullptr;
+    //checkCudaErrors(cudaMalloc((void**)&d_res, sizeof(float) * 1));
 
-    std::cout << *h_res << std::endl;
+    //dim3 block(256);
+    //dim3 grid((len + block.x - 1) / block.x);
+    //sum << <grid, block >> > (d_data, d_res, len);
+    //checkCudaErrors(cudaDeviceSynchronize());
+
+    //float* h_res = new float;
+    //checkCudaErrors(cudaMemcpy(h_res, d_res, sizeof(float) * 1, cudaMemcpyDeviceToHost));
+
+    //std::cout << *h_res << std::endl;
 
 
     //int a = 0;

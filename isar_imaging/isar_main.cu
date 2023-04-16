@@ -11,7 +11,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_DATAW
-	ioOperation::dataWriteBack(std::string(DIR_PATH) + "dataW.dat", d_data, paras.data_num);
+	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "dataW.dat", d_data, paras.data_num);
 #endif // DATA_WRITE_BACK_DATAW
 
 
@@ -45,7 +45,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_HPC
-	ioOperation::dataWriteBack(std::string(DIR_PATH) + "hpc.dat", d_data, paras.data_num);
+	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "hpc.dat", d_data, paras.data_num);
 #endif // DATA_WRITE_BACK_HPC
 
 
@@ -78,7 +78,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_HRRP
-	ioOperation::dataWriteBack(std::string(DIR_PATH) + "hrrp.dat", d_hrrp, paras.data_num);
+	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "hrrp.dat", d_hrrp, paras.data_num);
 #endif // DATA_WRITE_BACK_HRRP
 
 
@@ -102,7 +102,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	HRRPCenter(d_data, inter_length, paras, handles);
 
 #ifdef DATA_WRITE_BACK_RA
-	ioOperation::dataWriteBack(std::string(DIR_PATH) + "ra.dat", d_data, paras.data_num);
+	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "ra.dat", d_data, paras.data_num);
 #endif // DATA_WRITE_BACK_RA
 
 	// * Cutting range profile
@@ -158,7 +158,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_PC
-	ioOperation::dataWriteBack(std::string(DIR_PATH) + "pc.dat", d_data_cut, paras.data_num);
+	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "pc.dat", d_data_cut, paras.data_num);
 #endif // DATA_WRITE_BACK_PC
 
 
@@ -184,7 +184,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_MTRC
-	ioOperation::dataWriteBack(std::string(DIR_PATH) + "mtrc.dat", d_data_cut, paras.data_num);
+	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "mtrc.dat", d_data_cut, paras.data_num);
 #endif // DATA_WRITE_BACK_MTRC
 
 
@@ -225,7 +225,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_FINAL
-	ioOperation::writeFile(std::string(DIR_PATH) + "final.dat", h_img, paras.data_num);
+	ioOperation::writeFile(std::string(INTERMEDIATE_DIR) + "final.dat", h_img, paras.data_num);
 #endif // DATA_WRITE_BACK_FINAL
 
 

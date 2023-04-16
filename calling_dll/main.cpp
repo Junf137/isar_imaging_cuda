@@ -2,11 +2,15 @@
 
 #include <iostream>
 #include <chrono>
+#include <fstream>
+#include <iomanip>
+
+int writeFile(const std::string& outFilePath, const float* data, const  size_t& data_size);
 
 int main()
 {
     // * Imaging parameters
-    std::string dir_path("F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\");
+    std::string file_path("F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\210425235341_047414_1383_00_1101.wbd");
     int imaging_stride = 10;
     int sampling_stride = 1;
     int window_head = 10 - 1;
@@ -36,7 +40,7 @@ int main()
 
     // * Starting imaging for file in dir_path
     // * Data parsing
-    dataParsing(&dataN, &stretchIndex, &turnAngle, &frame_len, &frame_num, dir_path);
+    dataParsing(&dataN, &stretchIndex, &turnAngle, &frame_len, &frame_num, file_path);
 
     // * Data initialization
     imagingMemInit(&h_img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW,  window_len, frame_len);
@@ -46,7 +50,7 @@ int main()
     for (int i = 0; i < 10; ++i) {
         int window_end = window_head + sampling_stride * window_len - 1;
         if (window_end > frame_num) {
-            printf("[WARN] window_end > frame_num\n");
+            printf("[main/WARN] window_end > frame_num\n");
             break;
         }
 
@@ -57,6 +61,8 @@ int main()
 
         // Single ISAR imaging process
         isarMainSingle(h_img, data_style, h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
+
+        writeFile("F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), h_img, 256 * 512);
         
         window_head += imaging_stride;
 
@@ -68,4 +74,20 @@ int main()
     imagingMemDest(&h_img);
 
     return 0;
+}
+
+int writeFile(const std::string& outFilePath, const float* data, const  size_t& data_size)
+{
+    std::ofstream ofs(outFilePath);
+    if (!ofs.is_open()) {
+        std::cout << "[writeFile/WARN] Cannot open the file: " << outFilePath << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    for (int idx = 0; idx < data_size; idx++) {
+        ofs << std::fixed << std::setprecision(5) << data[idx] << "\n";
+    }
+
+    ofs.close();
+    return EXIT_SUCCESS;
 }

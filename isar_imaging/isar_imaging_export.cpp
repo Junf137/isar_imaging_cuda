@@ -3,7 +3,7 @@
 #include "isar_imaging_export.h"
 
 // * Global variables that are not exposed to exported API
-std::string DIR_PATH;
+std::string INTERMEDIATE_DIR;  // intermediate directory for saving intermediate results
 ioOperation io;
 RadarParameters paras{};
 CUDAHandle handles;
@@ -29,15 +29,14 @@ int gpuDevInit()
 
 
 int dataParsing(vec2D_DBL* dataN, vec1D_INT* stretchIndex, vec1D_FLT* turnAngle, int* frame_len, int* frame_num, \
-    const std::string& dir_path)
+    const std::string& file_path)
 {
 #ifdef SEPARATE_TIMEING_
     std::cout << "---* Starting Data Parsing *---\n";
     auto t_data_parsing_1 = std::chrono::high_resolution_clock::now();
 #endif // SEPARATE_TIMEING_
 
-    DIR_PATH.assign(dir_path);
-    io.ioInit(dir_path, 1);
+    io.ioInit(&INTERMEDIATE_DIR, file_path, 1);
 
     io.getSystemParas(&paras, frame_len, frame_num);
 

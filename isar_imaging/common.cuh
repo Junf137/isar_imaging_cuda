@@ -8,7 +8,7 @@
 //#define DATA_WRITE_BACK_RA
 //#define DATA_WRITE_BACK_PC
 //#define DATA_WRITE_BACK_MTRC
-#define DATA_WRITE_BACK_FINAL
+//#define DATA_WRITE_BACK_FINAL
 //#define SEPARATE_TIMEING_
 
 
@@ -513,8 +513,8 @@ int nonUniformSampling();
 class ioOperation
 {
 private:
-	std::string m_dir_path;
-	std::string m_file_path;
+	std::string m_dir_path;  // directory path
+	std::string m_file_path;  // file path
 	int m_file_type;  // file polar type
 
 public:
@@ -524,12 +524,13 @@ public:
 	ioOperation();
 
 	/// <summary>
-	/// Finding target data file that matching given file_type in dir_path.
-	/// Validating the directory path.
+	/// Receiving parameter file_path as the path of data file.
+	/// Assign class member.
 	/// </summary>
-	/// <param name="dir_path"></param>
+	/// <param name="INTERMEDIATE_DIR"></param>
+	/// <param name="file_path"></param>
 	/// <param name="file_type"></param>
-	void ioInit(const std::string& dir_path, const int& file_type);
+	void ioInit(std::string* INTERMEDIATE_DIR, const std::string& file_path, const int& file_type);
 
 	/// <summary>
 	/// 

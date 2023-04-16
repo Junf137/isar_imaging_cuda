@@ -8,7 +8,7 @@
 #include "mtrc.cuh"
 
 
-extern std::string DIR_PATH;
+extern std::string INTERMEDIATE_DIR;
 
 
 /// <summary>
