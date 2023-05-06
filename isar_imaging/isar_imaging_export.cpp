@@ -137,6 +137,56 @@ void imagingMemInit(float** h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, 
 }
 
 
+void parasInit(float** h_img, \
+    const int& echo_num, const int& range_num, const long long& band_width, const long long& fc, const int& Fs, const double& Tp)
+{
+#ifdef SEPARATE_TIMEING_
+    std::cout << "---* Starting GPU Memory Initialization *---\n";
+    auto t_init_gpu_1 = std::chrono::high_resolution_clock::now();
+#endif // SEPARATE_TIMEING_
+
+    paras.echo_num = echo_num;
+    paras.range_num = range_num;
+    paras.data_num = paras.echo_num * paras.range_num;
+    if (paras.echo_num > MAX_THREAD_PER_BLOCK) {
+        std::cout << "[main/WARN] echo_num > MAX_THREAD_PER_BLOCK: " << MAX_THREAD_PER_BLOCK << ", please double-check the data, then reconfiguring the parameters." << std::endl;
+        return;
+    }
+    if (paras.range_num < RANGE_NUM_CUT) {
+        std::cout << "[main/WARN] range_num < RANGE_NUM_CUT: " << RANGE_NUM_CUT << ", please double-check the data or optimize process of cutRangeProfile()." << std::endl;
+        return;
+    }
+    if (paras.range_num < paras.echo_num) {
+        std::cout << "[main/WARN] range_num < echo_num, please double-check the data." << std::endl;
+        return;
+    }
+
+
+    handles.handleInit(paras.echo_num, paras.range_num);
+    *h_img = new float[paras.echo_num * RANGE_NUM_CUT];
+
+    paras.band_width = band_width;
+    paras.fc = fc;
+    paras.Fs = Fs;
+    paras.Tp = Tp;
+
+    checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * paras.data_num));
+    checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * RANGE_NUM_CUT));
+    checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
+    checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
+    checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
+    checkCudaErrors(cudaMalloc((void**)&d_hamming_echoes, sizeof(float) * paras.echo_num));
+    checkCudaErrors(cudaMalloc((void**)&d_img, sizeof(float) * paras.echo_num * RANGE_NUM_CUT));
+
+#ifdef SEPARATE_TIMEING_
+    auto t_init_gpu_2 = std::chrono::high_resolution_clock::now();
+    std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(t_init_gpu_2 - t_init_gpu_1).count() << "ms\n";
+    std::cout << "---* GPU Memory Initialization Over *---\n";
+    std::cout << "************************************\n\n";
+#endif // SEPARATE_TIMEING_
+}
+
+
 void isarMainSingle(float* h_img, \
     const int& data_style, const std::complex<float>* h_data, const vec2D_DBL& dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
 {

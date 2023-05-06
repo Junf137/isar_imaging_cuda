@@ -145,6 +145,22 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	auto t_pc_2 = std::chrono::high_resolution_clock::now();
 #endif // SEPARATE_TIMEING_
 
+	//int iteration_num = 50;
+	//auto t_ra_1 = std::chrono::high_resolution_clock::now();
+	//auto t_ra_2 = std::chrono::high_resolution_clock::now();
+	//int total_time = 0;
+	//for (int i = 0; i < iteration_num; ++i) {
+	//	t_ra_1 = std::chrono::high_resolution_clock::now();
+	//	// * Profiling operation
+	//	fastEntropy(d_data_cut, paras.echo_num, paras.range_num, handles);
+	//	t_ra_2 = std::chrono::high_resolution_clock::now();
+
+	//	total_time += static_cast<int>(std::chrono::duration_cast<std::chrono::microseconds>(t_ra_2 - t_ra_1).count());
+	//}
+	//total_time /= iteration_num;
+	//// print total time
+	//std::cout << "total time: " << total_time << " us" << std::endl;
+
 	// * Fast Entropy
 	fastEntropy(d_data_cut, paras.echo_num, paras.range_num, handles);
 
