@@ -87,13 +87,33 @@ struct RadarParameters
 };
 
 
+/// <summary>
+/// converting element in d_data_flt from type float to double
+/// </summary>
+/// <param name="d_data_flt"></param>
+/// <param name="d_data_dbl"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void cuComplexFLT2DBL(cuFloatComplex* d_data_flt, cuDoubleComplex* d_data_dbl, int len);
+
+
+/// <summary>
+/// converting element in d_data_dbl from type double to float
+/// </summary>
+/// <param name="d_data_flt"></param>
+/// <param name="d_data_dbl"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void cuComplexDBL2FLT(cuFloatComplex* d_data_flt, cuDoubleComplex* d_data_dbl, int len);
+
+
 class CUDAHandle {
 public:
 	// * Overall cuBlas handle
 	cublasHandle_t handle;
 
 	// * Overall cuFFT plan
-	cufftHandle plan_all_echo_c2c;
+	cufftHandle plan_all_echo_z2z;
 	//cufftHandle plan_one_echo_c2c;  // used in range alignment iteration version
 	//cufftHandle plan_one_echo_r2c;  // implicitly forward
 	cufftHandle plan_all_echo_r2c;  // implicitly forward
@@ -272,6 +292,7 @@ __global__ void elementwiseMultiplyConjA(cuComplex* a, cuComplex* b, cuComplex* 
 __global__ void elementwiseMultiplyRep(cuComplex* a, cuComplex* b, cuComplex* c, int len_a, int len_b);
 __global__ void elementwiseMultiplyRep(cuDoubleComplex* a, cuDoubleComplex* b, cuDoubleComplex* c, int len_a, int len_b);
 __global__ void elementwiseMultiplyRep(float* a, cuComplex* b, cuComplex* c, int len_a, int len_b);
+__global__ void elementwiseMultiplyRep(double* a, cuDoubleComplex* b, cuDoubleComplex* c, int len_a, int len_b);
 
 
 /// <summary>
@@ -329,6 +350,7 @@ __global__ void expJ(double* x, cuDoubleComplex* res, int len);
 /// <param name="len"></param>
 /// <returns></returns>
 __global__ void genHammingVec(float* hamming, int len);
+__global__ void genHammingVec(double* hamming, int len);
 
 
 //template <typename T>
@@ -448,7 +470,7 @@ __global__ void setNumInArray(int* d_data, int* d_index, int val, int d_index_le
 /// <param name="d_data"></param>
 /// <param name="paras"></param>
 /// <param name="handles"></param>
-void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles);
+void getHRRP(cuDoubleComplex* d_hrrp, cuDoubleComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles);
 
 
 /// <summary>

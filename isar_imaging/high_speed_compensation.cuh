@@ -3,6 +3,8 @@
 
 #include "common.cuh"
 
+extern std::string INTERMEDIATE_DIR;
+
 /// <summary>
 /// High Speed Motion Compensation.
 /// compensation phase: fai = 2*pi*K*2*v_tmp/c*tk.^2
@@ -12,7 +14,7 @@
 /// <param name="d_velocity"></param>
 /// <param name="paras"></param>
 /// <param name="handles"></param>
-void highSpeedCompensation(cuComplex* d_data, double* d_velocity, const RadarParameters& paras, const CUDAHandle& handles);
+void highSpeedCompensation(cuDoubleComplex* d_data, double* d_velocity, const RadarParameters& paras, const CUDAHandle& handles);
 
 
 /// <summary>
@@ -23,26 +25,6 @@ void highSpeedCompensation(cuComplex* d_data, double* d_velocity, const RadarPar
 /// <param name="len"></param>
 /// <returns></returns>
 __global__ void genTk2Vec(double* d_tk2, double Fs, int len);
-
-
-/// <summary>
-/// converting element in d_data_flt from type float to double
-/// </summary>
-/// <param name="d_data_flt"></param>
-/// <param name="d_data_dbl"></param>
-/// <param name="len"></param>
-/// <returns></returns>
-__global__ void cuComplexFLT2DBL(cuFloatComplex* d_data_flt, cuDoubleComplex* d_data_dbl, int len);
-
-
-/// <summary>
-/// converting element in d_data_dbl from type double to float
-/// </summary>
-/// <param name="d_data_flt"></param>
-/// <param name="d_data_dbl"></param>
-/// <param name="len"></param>
-/// <returns></returns>
-__global__ void cuComplexDBL2FLT(cuFloatComplex* d_data_flt, cuDoubleComplex* d_data_dbl, int len);
 
 
 #endif // !HIGH_SPEED_COMPENSATION_H_

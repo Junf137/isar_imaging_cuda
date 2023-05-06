@@ -47,7 +47,7 @@ int main()
     const std::complex<float>* h_data = dataW.data();
 
     // * Sequential imaging process
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 1; ++i) {
         int window_end = window_head + sampling_stride * window_len - 1;
         if (window_end > frame_num) {
             printf("[main/WARN] window_end > frame_num\n");
@@ -62,7 +62,7 @@ int main()
         // Single ISAR imaging process
         isarMainSingle(h_img, data_style, h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
 
-        writeFile("F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), h_img, 256 * 512);
+        //writeFile("F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), h_img, 256 * 512);
         
         window_head += imaging_stride;
 

@@ -11,8 +11,8 @@ CUDAHandle handles;
 cuComplex* d_data;
 cuComplex* d_data_cut;
 double* d_velocity;
-float* d_hamming;
-cuComplex* d_hrrp;
+double* d_hamming;
+cuDoubleComplex* d_hrrp;
 float* d_hamming_echoes;
 float* d_img;
 
@@ -123,8 +123,8 @@ void imagingMemInit(float** h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, 
     checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * paras.data_num));
     checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * RANGE_NUM_CUT));
     checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
-    checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
-    checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
+    checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(double) * paras.range_num));
+    checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuDoubleComplex) * paras.data_num));
     checkCudaErrors(cudaMalloc((void**)&d_hamming_echoes, sizeof(float) * paras.echo_num));
     checkCudaErrors(cudaMalloc((void**)&d_img, sizeof(float) * paras.echo_num * RANGE_NUM_CUT));
 
@@ -173,8 +173,8 @@ void parasInit(float** h_img, \
     checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * paras.data_num));
     checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * RANGE_NUM_CUT));
     checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
-    checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
-    checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
+    checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(double) * paras.range_num));
+    checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuDoubleComplex) * paras.data_num));
     checkCudaErrors(cudaMalloc((void**)&d_hamming_echoes, sizeof(float) * paras.echo_num));
     checkCudaErrors(cudaMalloc((void**)&d_img, sizeof(float) * paras.echo_num * RANGE_NUM_CUT));
 

@@ -1,6 +1,24 @@
 ﻿#include "common.cuh"
 
 
+__global__ void cuComplexFLT2DBL(cuFloatComplex* d_data_flt, cuDoubleComplex* d_data_dbl, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		d_data_dbl[tid] = cuComplexFloatToDouble(d_data_flt[tid]);
+	}
+}
+
+
+__global__ void cuComplexDBL2FLT(cuFloatComplex* d_data_flt, cuDoubleComplex* d_data_dbl, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		d_data_flt[tid] = cuComplexDoubleToFloat(d_data_dbl[tid]);
+	}
+}
+
+
 /* CUDAHandle Class */
 CUDAHandle::CUDAHandle() { }
 
@@ -9,7 +27,7 @@ void CUDAHandle::handleInit(const int& echo_num, const int& range_num)
 {
 	checkCudaErrors(cublasCreate(&handle));
 
-	checkCudaErrors(cufftPlan1d(&plan_all_echo_c2c, range_num, CUFFT_C2C, echo_num));
+	checkCudaErrors(cufftPlan1d(&plan_all_echo_z2z, range_num, CUFFT_Z2Z, echo_num));
 	//checkCudaErrors(cufftPlan1d(&plan_one_echo_c2c, range_num, CUFFT_C2C, 1));
 	//checkCudaErrors(cufftPlan1d(&plan_one_echo_r2c, range_num, CUFFT_R2C, 1));
 	checkCudaErrors(cufftPlan1d(&plan_all_echo_r2c, range_num, CUFFT_R2C, echo_num));
@@ -42,7 +60,7 @@ void CUDAHandle::handleDest()
 {
 	checkCudaErrors(cublasDestroy(handle));
 
-	checkCudaErrors(cufftDestroy(plan_all_echo_c2c));
+	checkCudaErrors(cufftDestroy(plan_all_echo_z2z));
 	//checkCudaErrors(cufftDestroy(plan_one_echo_c2c));
 	//checkCudaErrors(cufftDestroy(plan_one_echo_r2c));
 	checkCudaErrors(cufftDestroy(plan_all_echo_r2c));
@@ -174,6 +192,13 @@ __global__ void elementwiseMultiplyRep(float* a, cuComplex* b, cuComplex* c, int
 	}
 }
 
+__global__ void elementwiseMultiplyRep(double* a, cuDoubleComplex* b, cuDoubleComplex* c, int len_a, int len_b)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len_b) {
+		c[tid] = cuCmul(make_cuDoubleComplex(a[tid % len_a], 0.0f), b[tid]);
+	}
+}
 
 __global__ void elementwiseDiv(float* a, cuComplex* b, cuComplex* c, int len)
 {
@@ -243,6 +268,19 @@ __global__ void genHammingVec(float* d_hamming, int len)
 	else if (tid < len) {
 		int tx = len - tid - 1;
 		d_hamming[tid] = (0.54f - 0.46f * std::cos(2 * PI_FLT * (static_cast<float>(tx) / len - 1)));
+	}
+}
+
+__global__ void genHammingVec(double* d_hamming, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < (len / 2)) {
+		int tx = tid;
+		d_hamming[tid] = (0.54 - 0.46 * std::cos(2 * PI_DBL * (static_cast<double>(tx) / len - 1)));
+	}
+	else if (tid < len) {
+		int tx = len - tid - 1;
+		d_hamming[tid] = (0.54 - 0.46 * std::cos(2 * PI_DBL * (static_cast<double>(tx) / len - 1)));
 	}
 }
 
@@ -472,12 +510,12 @@ __global__ void setNumInArray(int* d_data, int* d_index, int val, int d_index_le
 }
 
 
-void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles)
+void getHRRP(cuDoubleComplex* d_hrrp, cuDoubleComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles)
 {
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
 
 	// fft
-	checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c, d_data, d_hrrp, CUFFT_FORWARD));
+	checkCudaErrors(cufftExecZ2Z(handles.plan_all_echo_z2z, d_data, d_hrrp, CUFFT_FORWARD));
 	// fftshift
 	ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_hrrp, paras.range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
@@ -815,7 +853,7 @@ int ioOperation::writeFile(const std::string& outFilePath, const cuComplex* data
 	}
 
 	for (int idx = 0; idx < data_size; idx++) {
-		ofs << std::fixed << std::setprecision(5) << data[idx].x << "\n" << data[idx].y << "\n";
+		ofs << std::fixed << std::setprecision(10) << data[idx].x << "\n" << data[idx].y << "\n";
 	}
 
 	ofs.close();
@@ -832,7 +870,7 @@ int ioOperation::writeFile(const std::string& outFilePath, const cuDoubleComplex
 	}
 
 	for (int idx = 0; idx < data_size; idx++) {
-		ofs << std::fixed << std::setprecision(5) << data[idx].x << "\n" << data[idx].y << "\n";
+		ofs << std::fixed << std::setprecision(10) << data[idx].x << "\n" << data[idx].y << "\n";
 	}
 
 	ofs.close();
@@ -849,7 +887,7 @@ int ioOperation::writeFile(const std::string& outFilePath, const float* data, co
 	}
 
 	for (int idx = 0; idx < data_size; idx++) {
-		ofs << std::fixed << std::setprecision(5) << data[idx] << "\n";
+		ofs << std::fixed << std::setprecision(10) << data[idx] << "\n";
 	}
 
 	ofs.close();
@@ -866,7 +904,7 @@ int ioOperation::writeFile(const std::string& outFilePath, const double* data, c
 	}
 
 	for (int idx = 0; idx < data_size; idx++) {
-		ofs << std::fixed << std::setprecision(5) << data[idx] << "\n";
+		ofs << std::fixed << std::setprecision(10) << data[idx] << "\n";
 	}
 
 	ofs.close();

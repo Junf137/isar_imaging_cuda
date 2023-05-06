@@ -1,14 +1,19 @@
 ﻿#include "isar_main.cuh"
 
-int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_cut, double* d_velocity, float* d_hamming, cuComplex* d_hrrp, float* d_hamming_echoes, float* d_img, \
+int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_cut, double* d_velocity, double* d_hamming, cuDoubleComplex* d_hrrp, float* d_hamming_echoes, float* d_img, \
 	RadarParameters& paras, const CUDAHandle& handles, const int& data_style, const std::complex<float>* h_data, const vec2D_DBL& dataNOut, \
 	const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
 {
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);
 
-	// d_data (host -> device)
+	// * Data transfer. d_data (host -> device)
 	checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(cuComplex) * paras.data_num, cudaMemcpyHostToDevice));
 
+	// * Converting d_data to double precision (remove after flt2dbl conversion)
+	cuDoubleComplex* d_data_dbl = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_data_dbl, sizeof(cuDoubleComplex) * paras.data_num));
+	cuComplexFLT2DBL << <(paras.data_num + block.x - 1) / block.x, block >> > (reinterpret_cast<cuFloatComplex*>(d_data), d_data_dbl, paras.data_num);
+	checkCudaErrors(cudaDeviceSynchronize());
 
 #ifdef DATA_WRITE_BACK_DATAW
 	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "dataW.dat", d_data, paras.data_num);
@@ -30,7 +35,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 		checkCudaErrors(cudaMemcpy(d_velocity, h_velocity, sizeof(double) * paras.echo_num, cudaMemcpyHostToDevice));
 
 		// * Starting HPC
-		highSpeedCompensation(d_data, d_velocity, paras, handles);
+		highSpeedCompensation(d_data_dbl, d_velocity, paras, handles);
 
 		delete[] h_velocity;
 		h_velocity = nullptr;
@@ -62,12 +67,12 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// d_data = d_data .* repmat(d_hamming, echo_num, 1)
-	elementwiseMultiplyRep << <dim3((paras.data_num + block.x - 1) / block.x), block >> > (d_hamming, d_data, d_data, paras.range_num, paras.data_num);
+	elementwiseMultiplyRep << <dim3((paras.data_num + block.x - 1) / block.x), block >> > (d_hamming, d_data_dbl, d_data_dbl, paras.range_num, paras.data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * HRRP - High Resolution Range Profile.
 	// d_hrrp = fftshift(fft(d_data))
-	getHRRP(d_hrrp, d_data, paras, handles);
+	getHRRP(d_hrrp, d_data_dbl, paras, handles);
 
 #ifdef SEPARATE_TIMEING_
 	auto t_hrrp_2 = std::chrono::high_resolution_clock::now();
@@ -81,6 +86,9 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "hrrp.dat", d_hrrp, paras.data_num);
 #endif // DATA_WRITE_BACK_HRRP
 
+	// * Converting d_data back to float precision
+	cuComplexDBL2FLT << <(paras.data_num + block.x - 1) / block.x, block >> > (reinterpret_cast<cuFloatComplex*>(d_data), d_data_dbl, paras.data_num);
+	checkCudaErrors(cudaDeviceSynchronize());
 
 	/******************
 	 * Range Alignment and HRRP Centering
@@ -91,22 +99,22 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 #endif // SEPARATE_TIMEING_
 
 	// * Range Alignment
-	rangeAlignmentParallel(d_data, d_hamming, paras, handles);
+	//rangeAlignmentParallel(d_data, d_hamming, paras, handles);
 
 #ifdef SEPARATE_TIMEING_
 	auto t_ra_2 = std::chrono::high_resolution_clock::now();
 #endif // SEPARATE_TIMEING_
 
 	// * Centering HRRP
-	int inter_length = 30;
-	HRRPCenter(d_data, inter_length, paras, handles);
+	//int inter_length = 30;
+	//HRRPCenter(d_data, inter_length, paras, handles);
 
 #ifdef DATA_WRITE_BACK_RA
 	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "ra.dat", d_data, paras.data_num);
 #endif // DATA_WRITE_BACK_RA
 
 	// * Cutting range profile
-	cutRangeProfile(d_data_cut, d_data, paras, RANGE_NUM_CUT, handles);
+	//cutRangeProfile(d_data_cut, d_data, paras, RANGE_NUM_CUT, handles);
 
 #ifdef SEPARATE_TIMEING_
 	auto t_ra_3 = std::chrono::high_resolution_clock::now();
@@ -145,6 +153,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	auto t_pc_2 = std::chrono::high_resolution_clock::now();
 #endif // SEPARATE_TIMEING_
 
+	// * Profiling Code
 	//int iteration_num = 50;
 	//auto t_ra_1 = std::chrono::high_resolution_clock::now();
 	//auto t_ra_2 = std::chrono::high_resolution_clock::now();
@@ -162,7 +171,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	//std::cout << "total time: " << total_time << " us" << std::endl;
 
 	// * Fast Entropy
-	fastEntropy(d_data_cut, paras.echo_num, paras.range_num, handles);
+	//fastEntropy(d_data_cut, paras.echo_num, paras.range_num, handles);
 
 #ifdef SEPARATE_TIMEING_
 	auto t_pc_3 = std::chrono::high_resolution_clock::now();
@@ -188,7 +197,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 #endif // SEPARATE_TIMEING_
 
 		// * MTRC Correction
-		mtrc(d_data_cut, paras, handles);
+		//mtrc(d_data_cut, paras, handles);
 
 #ifdef SEPARATE_TIMEING_
 		auto t_mtrc_2 = std::chrono::high_resolution_clock::now();
@@ -213,24 +222,24 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 #endif // SEPARATE_TIMEING_
 
 	// * Adding hamming window in range dimension
-	genHammingVec << <dim3((paras.echo_num + block.x - 1) / block.x), block >> > (d_hamming_echoes, paras.echo_num);
-	checkCudaErrors(cudaDeviceSynchronize());
+	//genHammingVec << <dim3((paras.echo_num + block.x - 1) / block.x), block >> > (d_hamming_echoes, paras.echo_num);
+	//checkCudaErrors(cudaDeviceSynchronize());
 
 	// adding hamming
-	diagMulMat << <(paras.data_num + block.x - 1) / block.x, block >> > (d_hamming_echoes, d_data_cut, d_data_cut, paras.echo_num, paras.range_num);
-	checkCudaErrors(cudaDeviceSynchronize());
+	//diagMulMat << <(paras.data_num + block.x - 1) / block.x, block >> > (d_hamming_echoes, d_data_cut, d_data_cut, paras.echo_num, paras.range_num);
+	//checkCudaErrors(cudaDeviceSynchronize());
 
 	// * Applying fft on each range along the second dimension
-	checkCudaErrors(cufftExecC2C(handles.plan_all_range_c2c, d_data_cut, d_data_cut, CUFFT_FORWARD));
+	//checkCudaErrors(cufftExecC2C(handles.plan_all_range_c2c, d_data_cut, d_data_cut, CUFFT_FORWARD));
 	// fftshift
-	ifftshiftCols << <dim3(paras.range_num, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_data_cut, paras.echo_num);
-	checkCudaErrors(cudaDeviceSynchronize());
+	//ifftshiftCols << <dim3(paras.range_num, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_data_cut, paras.echo_num);
+	//checkCudaErrors(cudaDeviceSynchronize());
 
 	// * final img data
-	elementwiseAbs << <(paras.data_num + block.x - 1) / block.x, block >> > (d_data_cut, d_img, paras.data_num);
-	checkCudaErrors(cudaDeviceSynchronize());
+	//elementwiseAbs << <(paras.data_num + block.x - 1) / block.x, block >> > (d_data_cut, d_img, paras.data_num);
+	//checkCudaErrors(cudaDeviceSynchronize());
 
-	checkCudaErrors(cudaMemcpy(h_img, d_img, sizeof(float) * paras.data_num, cudaMemcpyDeviceToHost));  // img (device -> host)
+	//checkCudaErrors(cudaMemcpy(h_img, d_img, sizeof(float) * paras.data_num, cudaMemcpyDeviceToHost));  // img (device -> host)
 
 #ifdef SEPARATE_TIMEING_
 	auto t_post_processing_2 = std::chrono::high_resolution_clock::now();
