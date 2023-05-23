@@ -79,20 +79,6 @@ extern "C" DLL_EXPORT_API void imagingMemInit(float** h_img, vec1D_INT * dataWFi
 
 
 /// <summary>
-/// Initializing parameters for ISAR imaging.
-/// </summary>
-/// <param name="h_img"> nullptr required </param>
-/// <param name="echo_num"> echo number in slow time </param>
-/// <param name="range_num"> range number in fast time </param>
-/// <param name="band_width"> </param>
-/// <param name="fc"> </param>
-/// <param name="Fs"> </param>
-/// <param name="Tp"> </param>
-extern "C" DLL_EXPORT_API void parasInit(float** h_img, \
-	const int& echo_num, const int& range_num, const long long& band_width, const long long& fc, const int& Fs, const double& Tp);
-
-
-/// <summary>
 /// ISAR imaging process for single image.
 /// Result is a matrix of size (echo_num * range_num), stored in memory pointed by h_img.
 /// </summary>
@@ -116,6 +102,36 @@ extern "C" DLL_EXPORT_API void isarMainSingle(float* h_img, \
 /// <param name="h_img"></param>
 /// <returns></returns>
 extern "C" DLL_EXPORT_API void imagingMemDest(float** h_img);
+
+
+/******************
+ * API for Simulation Data
+ ******************/
+
+/// <summary>
+/// Initializing parameters for ISAR imaging.
+/// </summary>
+/// <param name="h_img"> nullptr required </param>
+/// <param name="echo_num"> echo number in slow time </param>
+/// <param name="range_num"> range number in fast time </param>
+/// <param name="band_width"> </param>
+/// <param name="fc"> </param>
+/// <param name="Fs"> </param>
+/// <param name="Tp"> </param>
+//extern "C" DLL_EXPORT_API void parasInit(float** h_img, \
+//	const int& echo_num, const int& range_num, const long long& band_width, const long long& fc, const int& Fs, const double& Tp);
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="h_data"></param>
+/// <param name="dataNOut"></param>
+/// <param name="info_mat"></param>
+/// <param name="real_mat"></param>
+/// <param name="imag_mat"></param>
+//void sim_data_extract(std::complex<float>* h_data, std::vector<std::vector<double>>* dataNOut, \
+//	const char* info_mat, const char* real_mat, const char* imag_mat);
 
 #endif // !ISAR_IMAGING_EXPORT_H_
 

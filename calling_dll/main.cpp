@@ -62,7 +62,7 @@ int main()
         // Single ISAR imaging process
         isarMainSingle(h_img, data_style, h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
 
-        writeFile("F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), h_img, 256 * 512);
+        //writeFile("F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), h_img, 256 * 512);
         
         window_head += imaging_stride;
 
