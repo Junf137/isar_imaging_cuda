@@ -86,9 +86,6 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "hrrp.dat", d_hrrp, paras.data_num);
 #endif // DATA_WRITE_BACK_HRRP
 
-	// * Converting d_data back to float precision
-	cuComplexDBL2FLT << <(paras.data_num + block.x - 1) / block.x, block >> > (reinterpret_cast<cuFloatComplex*>(d_data), d_data_dbl, paras.data_num);
-	checkCudaErrors(cudaDeviceSynchronize());
 
 	/******************
 	 * Range Alignment and HRRP Centering
@@ -99,7 +96,8 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 #endif // SEPARATE_TIMEING_
 
 	// * Range Alignment
-	//rangeAlignmentParallel(d_data, d_hamming, paras, handles);
+	rangeAlignmentParallel(d_data_dbl, d_hamming, paras, handles);
+	//ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "ra.dat", d_data_dbl, paras.data_num);
 
 #ifdef SEPARATE_TIMEING_
 	auto t_ra_2 = std::chrono::high_resolution_clock::now();
@@ -124,6 +122,10 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	std::cout << "************************************\n\n";
 #endif // SEPARATE_TIMEING_
 
+
+	// * Converting d_data back to float precision
+	//cuComplexDBL2FLT << <(paras.data_num + block.x - 1) / block.x, block >> > (reinterpret_cast<cuFloatComplex*>(d_data), d_data_dbl, paras.data_num);
+	//checkCudaErrors(cudaDeviceSynchronize());
 
 
 	/**********************

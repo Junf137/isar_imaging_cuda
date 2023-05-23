@@ -11,7 +11,7 @@
 /// <param name="hamming_window"></param>
 /// <param name="paras"></param>
 /// <param name="handles"></param>
-void rangeAlignmentParallel(cuComplex* d_data, float* hamming_window, const RadarParameters& paras, const CUDAHandle& handles);
+void rangeAlignmentParallel(cuDoubleComplex* d_data, double* d_hamming, const RadarParameters& paras, const CUDAHandle& handles);
 
 
 /// <summary>
@@ -29,7 +29,7 @@ void rangeAlignmentParallel(cuComplex* d_data, float* hamming_window, const Rada
 /// <param name="cols"></param>
 /// <param name="stride"></param>
 /// <returns></returns>
-__global__ void getAveProfileParallel(float* d_data, float* d_ave_profile, int rows, int cols, const int& stride);
+__global__ void getAveProfileParallel(double* d_data, double* d_ave_profile, int rows, int cols, const int& stride);
 
 
 /// <summary>
@@ -43,7 +43,7 @@ __global__ void getAveProfileParallel(float* d_data, float* d_ave_profile, int r
 /// <param name="cols"></param>
 /// <param name="stride"></param>
 /// <returns></returns>
-__global__ void conjMulAveProfile(cuComplex* d_data, int rows, int cols, int stride);
+__global__ void conjMulAveProfile(cuDoubleComplex* d_data, int rows, int cols, int stride);
 
 
 /// <summary>
@@ -52,7 +52,7 @@ __global__ void conjMulAveProfile(cuComplex* d_data, int rows, int cols, int str
 /// <param name="d_vec_corr"></param>
 /// <param name="maxPos"></param>
 /// <returns>fixed value</returns>
-__device__ float binomialFixDevice(float* d_vec_corr, int maxPos);
+__device__ double binomialFixDevice(double* d_vec_corr, int maxPos);
 
 
 /// <summary>
@@ -63,42 +63,42 @@ __device__ float binomialFixDevice(float* d_vec_corr, int maxPos);
 /// Note that the value of cols should be power of 2.
 /// Kernel configuration requirements:
 /// (1) block_number == rows
-/// (2) shared_memory_number == thread_per_block == {256, 512, 1024}
+/// (2) shared_memory_number == thread_per_block
 /// </summary>
 /// <param name="d_data"></param>
 /// <param name="d_max_idx_rows"></param>
 /// <param name="rows"></param>
 /// <param name="cols"></param>
 /// <returns></returns>
-__global__ void maxRowsIdxABS(float* d_data, float* d_max_rows_idx, int rows, int cols);
+__global__ void maxRowsIdxABS(double* d_data, double* d_max_rows_idx, int rows, int cols);
 
 
 /// <summary>
 /// Generating frequency moving vector for every two stride.
 /// Kernel configuration requirements:
 /// (1) block_number == {(range_num + block.x - 1) / block.x, echo / (stride * 2)}
-/// (2) shared_memory_number == thread_per_block == {256, 512, 1024}
+/// (2) shared_memory_number == thread_per_block
 /// </summary>
 /// <param name="d_freq_mov_vec"></param>
 /// <param name="d_max_idx"></param>
 /// <param name="rows"></param>
 /// <param name="cols"></param>
 /// <returns></returns>
-__global__ void genFreqMovParallel(cuComplex* d_freq_mov_vec, float* d_max_idx, int cols, int stride);
+__global__ void genFreqMovParallel(cuDoubleComplex* d_freq_mov_vec, double* d_max_idx, int cols, int stride);
 
 
 /// <summary>
 /// Performing element-wise multiply to the right stride of each two strides with frequency moving vector stored in first row of each two stride.
 /// Kernel configuration requirements:
 /// (1) block_number == {(range_num + block.x - 1) / block.x, stride, echo / (stride * 2)}
-/// (2) shared_memory_number == thread_per_block == {256, 512, 1024}
+/// (2) shared_memory_number == thread_per_block
 /// </summary>
 /// <param name="d_data"></param>
 /// <param name="d_freq_mov_vec"></param>
 /// <param name="cols"></param>
 /// <param name="stride"></param>
 /// <returns></returns>
-__global__ void alignWithinStride(cuComplex* d_data, cuComplex* d_freq_mov_vec, int cols, int stride);
+__global__ void alignWithinStride(cuDoubleComplex* d_data, cuDoubleComplex* d_freq_mov_vec, int cols, int stride);
 
 
 /// <summary>
@@ -108,7 +108,7 @@ __global__ void alignWithinStride(cuComplex* d_data, cuComplex* d_freq_mov_vec, 
 /// <param name="d_freq_centering_vec"></param>
 /// <param name="len"></param>
 /// <returns></returns>
-__global__ void genFreqCenteringVec(float* hamming, cuComplex* d_freq_centering_vec, int len);
+__global__ void genFreqCenteringVec(double* hamming, cuDoubleComplex* d_freq_centering_vec, int len);
 
 
 /// <summary>

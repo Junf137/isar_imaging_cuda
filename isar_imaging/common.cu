@@ -30,9 +30,9 @@ void CUDAHandle::handleInit(const int& echo_num, const int& range_num)
 	checkCudaErrors(cufftPlan1d(&plan_all_echo_z2z, range_num, CUFFT_Z2Z, echo_num));
 	//checkCudaErrors(cufftPlan1d(&plan_one_echo_c2c, range_num, CUFFT_C2C, 1));
 	//checkCudaErrors(cufftPlan1d(&plan_one_echo_r2c, range_num, CUFFT_R2C, 1));
-	checkCudaErrors(cufftPlan1d(&plan_all_echo_r2c, range_num, CUFFT_R2C, echo_num));
+	checkCudaErrors(cufftPlan1d(&plan_all_echo_d2z, range_num, CUFFT_D2Z, echo_num));
 	//checkCudaErrors(cufftPlan1d(&plan_one_echo_c2r, range_num, CUFFT_C2R, 1));
-	checkCudaErrors(cufftPlan1d(&plan_all_echo_c2r, range_num, CUFFT_C2R, echo_num));
+	checkCudaErrors(cufftPlan1d(&plan_all_echo_z2d, range_num, CUFFT_Z2D, echo_num));
 
 	// cuFFT data layout for applying fft to each column along first dimension
 	int batch = RANGE_NUM_CUT;
@@ -63,9 +63,9 @@ void CUDAHandle::handleDest()
 	checkCudaErrors(cufftDestroy(plan_all_echo_z2z));
 	//checkCudaErrors(cufftDestroy(plan_one_echo_c2c));
 	//checkCudaErrors(cufftDestroy(plan_one_echo_r2c));
-	checkCudaErrors(cufftDestroy(plan_all_echo_r2c));
+	checkCudaErrors(cufftDestroy(plan_all_echo_d2z));
 	//checkCudaErrors(cufftDestroy(plan_one_echo_c2r));
-	checkCudaErrors(cufftDestroy(plan_all_echo_c2r));
+	checkCudaErrors(cufftDestroy(plan_all_echo_z2d));
 
 	checkCudaErrors(cufftDestroy(plan_all_range_c2c));
 	checkCudaErrors(cufftDestroy(plan_all_range_c2c_czt));
@@ -108,6 +108,14 @@ __global__ void elementwiseAbs(cuComplex* a, float* abs, int len)
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < len) {
 		abs[tid] = cuCabsf(a[tid]);
+	}
+}
+
+__global__ void elementwiseAbs(cuDoubleComplex* a, double* abs, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+	if (tid < len) {
+		abs[tid] = cuCabs(a[tid]);
 	}
 }
 

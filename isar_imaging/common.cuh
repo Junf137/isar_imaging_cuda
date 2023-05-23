@@ -9,7 +9,7 @@
 //#define DATA_WRITE_BACK_PC
 //#define DATA_WRITE_BACK_MTRC
 //#define DATA_WRITE_BACK_FINAL
-//#define SEPARATE_TIMEING_
+#define SEPARATE_TIMEING_
 
 
 #define MIN(a, b) (a<b) ? a : b
@@ -116,9 +116,9 @@ public:
 	cufftHandle plan_all_echo_z2z;
 	//cufftHandle plan_one_echo_c2c;  // used in range alignment iteration version
 	//cufftHandle plan_one_echo_r2c;  // implicitly forward
-	cufftHandle plan_all_echo_r2c;  // implicitly forward
+	cufftHandle plan_all_echo_d2z;  // implicitly forward
 	//cufftHandle plan_one_echo_c2r;  // implicitly inverse
-	cufftHandle plan_all_echo_c2r;  // implicitly inverse
+	cufftHandle plan_all_echo_z2d;  // implicitly inverse
 
 	// cuFFT plan after cut range profile
 	cufftHandle plan_all_range_c2c;
@@ -241,6 +241,7 @@ void getMin(cublasHandle_t handle, float* d_vec, int len, int* min_idx, float* m
 /// <param name="len"></param>
 /// <returns></returns>
 __global__ void elementwiseAbs(cuComplex* a, float* abs, int len);
+__global__ void elementwiseAbs(cuDoubleComplex* a, double* abs, int len);
 
 
 /// <summary>

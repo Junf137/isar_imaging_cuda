@@ -228,6 +228,45 @@ void sumRowsTime(int rows, int cols)
 
 int main(int argc, char** argv)
 {
+    int data_num = 256 * 4020;
+    std::complex<float>* h_flt = new std::complex<float>[data_num];
+    std::complex<double>* h_dbl = new std::complex<double>[data_num];
+
+    // initialize h_flt and h_dbl
+    for (int i = 0; i < data_num; ++i) {
+		h_flt[i] = std::complex<float>(static_cast<float>(i + 1), static_cast<float>(i + 1));
+		h_dbl[i] = std::complex<double>(static_cast<double>(i + 1), static_cast<double>(i + 1));
+	}
+
+    // copy data from host to device
+    cuComplex* d_flt = nullptr;
+    checkCudaErrors(cudaMalloc((void**)&d_flt, sizeof(cuComplex) * data_num));
+    checkCudaErrors(cudaMemcpy(d_flt, h_flt, sizeof(cuComplex) * data_num, cudaMemcpyHostToDevice));
+    cuDoubleComplex* d_dbl = nullptr;
+    checkCudaErrors(cudaMalloc((void**)&d_dbl, sizeof(cuDoubleComplex) * data_num));
+    checkCudaErrors(cudaMemcpy(d_dbl, h_dbl, sizeof(cuDoubleComplex) * data_num, cudaMemcpyHostToDevice));
+
+    cufftHandle plan_all_echo_c2c;
+    checkCudaErrors(cufftPlan1d(&plan_all_echo_c2c, 4020, CUFFT_C2C, 256));
+    cufftHandle plan_all_echo_z2z;
+    checkCudaErrors(cufftPlan1d(&plan_all_echo_z2z, 4020, CUFFT_Z2Z, 256));
+
+
+    // elementwiseAbs
+    auto t_1 = std::chrono::high_resolution_clock::now();
+
+    checkCudaErrors(cufftExecC2C(plan_all_echo_c2c, d_flt, d_flt, CUFFT_INVERSE));
+    checkCudaErrors(cudaDeviceSynchronize());
+
+    auto t_2 = std::chrono::high_resolution_clock::now();
+
+    checkCudaErrors(cufftExecZ2Z(plan_all_echo_z2z, d_dbl, d_dbl, CUFFT_INVERSE));
+    checkCudaErrors(cudaDeviceSynchronize());
+
+    auto t_3 = std::chrono::high_resolution_clock::now();
+
+    std::cout << "cuFFT float: " << std::chrono::duration_cast<std::chrono::microseconds>(t_2 - t_1).count() << " us" << std::endl;
+    std::cout << "cuFFT double: " << std::chrono::duration_cast<std::chrono::microseconds>(t_3 - t_2).count() << " us" << std::endl;
 
     // cufftTime
     //cufftTime(256 * 1000);
@@ -246,12 +285,12 @@ int main(int argc, char** argv)
     //matrixMulTime(8192, 1000);
 
 
-    sumRowsTime(256, 10000);
-    sumRowsTime(512, 10000);
-    sumRowsTime(1024, 10000);
-    sumRowsTime(2048, 10000);
-    sumRowsTime(4096, 10000);
-    sumRowsTime(8192, 10000);
+    //sumRowsTime(256, 10000);
+    //sumRowsTime(512, 10000);
+    //sumRowsTime(1024, 10000);
+    //sumRowsTime(2048, 10000);
+    //sumRowsTime(4096, 10000);
+    //sumRowsTime(8192, 10000);
 
 
     // * test for sum
