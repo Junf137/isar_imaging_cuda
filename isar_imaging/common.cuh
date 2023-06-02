@@ -75,6 +75,20 @@ constexpr auto DEFAULT_THREAD_PER_BLOCK = 256;
 namespace fs = std::filesystem;
 
 
+//enum DATA_TYPE
+//{
+//	IFDS = 1,	// IFDS data
+//	STRETCH		// stretch data
+//};
+//
+//
+//enum POLAR_TYPE
+//{
+//	LHP = 0,	// left-hand polarization
+//	RHP			// right-hand polarization
+//};
+
+
 struct RadarParameters
 {
 	int echo_num;
@@ -84,6 +98,16 @@ struct RadarParameters
 	long long fc;
 	double Tp;
 	int Fs;
+
+	// default constructor and equality operator
+	RadarParameters() = default;
+
+	bool operator==(const RadarParameters& other) const = default;
+
+	RadarParameters(int echo_num, int range_num, int data_num, long long band_width, long long fc, double Tp, int Fs)
+		: echo_num(echo_num), range_num(range_num), data_num(data_num), band_width(band_width), fc(fc), Tp(Tp), Fs(Fs)
+	{
+	}
 };
 
 
@@ -107,14 +131,44 @@ public:
 
 public:
 
-	CUDAHandle();
-
+	/// <summary>
+	/// Initializing cuBlas and cuFFT handle
+	/// </summary>
+	/// <param name="echo_num"></param>
+	/// <param name="range_num"></param>
 	void handleInit(const int& echo_num, const int& range_num);
 
+	/// <summary>
+	/// Destroying cuBlas and cuFFT handle
+	/// </summary>
 	void handleDest();
 
-	~CUDAHandle();
+	/// <summary>
+	/// Default constructor
+	/// </summary>
+	CUDAHandle() = default;
 
+	/// <summary>
+	/// Default Constructor
+	/// </summary>
+	/// <param name="handle"></param>
+	/// <param name="plan_all_echo_c2c"></param>
+	/// <param name="plan_all_echo_r2c"></param>
+	/// <param name="plan_all_echo_c2r"></param>
+	/// <param name="plan_all_range_c2c"></param>
+	/// <param name="plan_all_range_c2c_czt"></param>
+	/// <param name="plan_all_echo_c2c_cut"></param>
+	CUDAHandle(const cublasHandle_t& handle, const cufftHandle& plan_all_echo_c2c, const cufftHandle& plan_all_echo_r2c, const cufftHandle& plan_all_echo_c2r, const cufftHandle& plan_all_range_c2c, const cufftHandle& plan_all_range_c2c_czt, const cufftHandle& plan_all_echo_c2c_cut)
+		: handle(handle), plan_all_echo_c2c(plan_all_echo_c2c), plan_all_echo_r2c(plan_all_echo_r2c), plan_all_echo_c2r(plan_all_echo_c2r), plan_all_range_c2c(plan_all_range_c2c), plan_all_range_c2c_czt(plan_all_range_c2c_czt), plan_all_echo_c2c_cut(plan_all_echo_c2c_cut)
+	{
+	}
+
+	/// <summary>
+	/// Equality operator
+	/// </summary>
+	/// <param name="other"></param>
+	/// <returns></returns>
+	bool operator==(const CUDAHandle& other) const = default;
 };
 
 
@@ -515,34 +569,50 @@ class ioOperation
 private:
 	std::string m_dir_path;  // directory path
 	std::string m_file_path;  // file path
-	int m_file_type;  // file polar type
+	int m_polar_type;  // file polar type
+	int m_data_type;  // file data type
 
 public:
 	/// <summary>
-	/// 
+	/// Default constructor
 	/// </summary>
-	ioOperation();
+	ioOperation() = default;
 
 	/// <summary>
-	/// Receiving parameter file_path as the path of data file.
-	/// Assign class member.
+	/// Constructor with all filed
+	/// </summary>
+	ioOperation(const std::string& dir_path, const std::string& file_path, int polar_type, int data_type)
+		: m_dir_path(dir_path), m_file_path(file_path), m_polar_type(polar_type), m_data_type(data_type)
+	{
+	}
+
+	/// <summary>
+	/// Default destructor
+	/// </summary>
+	~ioOperation() = default;
+
+	/// <summary>
+	/// Default equality operator
+	/// </summary>
+	/// <param name="other"></param>
+	/// <returns></returns>
+	bool operator==(const ioOperation& other) const = default;
+
+	/// <summary>
+	/// Object initialization.
 	/// </summary>
 	/// <param name="INTERMEDIATE_DIR"></param>
 	/// <param name="file_path"></param>
-	/// <param name="file_type"></param>
-	void ioInit(std::string* INTERMEDIATE_DIR, const std::string& file_path, const int& file_type);
-
-	/// <summary>
-	/// 
-	/// </summary>
-	~ioOperation();
+	/// <param name="polar_type"></param>
+	/// <param name="data_type"></param>
+	void ioInit(std::string* INTERMEDIATE_DIR, const std::string& file_path, const int& polar_type, const int& data_type);
 
 	/// <summary>
 	/// Retrieving basic radar echo signal information.
 	/// </summary>
-	/// <param name="paras"> radar echo signal parameters </param>
-	/// <param name="frame_len"> single frame length </param>
-	/// <param name="frame_num"> total frame number</param>
+	/// <param name="paras"></param>
+	/// <param name="frame_len"></param>
+	/// <param name="frame_num"></param>
 	/// <returns></returns>
 	int getSystemParas(RadarParameters* paras, int* frame_len, int* frame_num);
 

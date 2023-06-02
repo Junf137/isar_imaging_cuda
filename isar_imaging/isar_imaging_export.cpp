@@ -29,14 +29,14 @@ int gpuDevInit()
 
 
 int dataParsing(vec2D_DBL* dataN, vec1D_INT* stretchIndex, vec1D_FLT* turnAngle, int* frame_len, int* frame_num, \
-    const std::string& file_path)
+    const std::string& file_path, const int& polar_type, const int& data_type)
 {
 #ifdef SEPARATE_TIMEING_
     std::cout << "---* Starting Data Parsing *---\n";
     auto t_data_parsing_1 = std::chrono::high_resolution_clock::now();
 #endif // SEPARATE_TIMEING_
 
-    io.ioInit(&INTERMEDIATE_DIR, file_path, 1);
+    io.ioInit(&INTERMEDIATE_DIR, file_path, polar_type, data_type);
 
     io.getSystemParas(&paras, frame_len, frame_num);
 
@@ -138,9 +138,9 @@ void imagingMemInit(float** h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, 
 
 
 void isarMainSingle(float* h_img, \
-    const int& data_style, const std::complex<float>* h_data, const vec2D_DBL& dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
+    const int& data_type, const std::complex<float>* h_data, const vec2D_DBL& dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
 {
-    ISAR_RD_Imaging_Main_Ku(h_img, d_data, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, data_style, h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
+    ISAR_RD_Imaging_Main_Ku(h_img, d_data, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, data_type, h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
 }
 
 

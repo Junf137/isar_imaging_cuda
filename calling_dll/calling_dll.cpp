@@ -16,7 +16,9 @@ int main()
     int window_head = 10 - 1;
     int window_len = 256;
 
-    int data_style = 2;
+    
+    int polar_type = 0;
+    int data_type = 2;
     int option_alignment = 0;
     int option_phase = 1;
     bool if_hpc = true;
@@ -40,7 +42,7 @@ int main()
 
     // * Starting imaging for file in dir_path
     // * Data parsing
-    dataParsing(&dataN, &stretchIndex, &turnAngle, &frame_len, &frame_num, file_path);
+    dataParsing(&dataN, &stretchIndex, &turnAngle, &frame_len, &frame_num, file_path, polar_type, data_type);
 
     // * Data initialization
     imagingMemInit(&h_img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW,  window_len, frame_len);
@@ -60,7 +62,7 @@ int main()
         dataExtracting(&dataWFileSn, &dataNOut, &turnAngleOut, &dataW, dataN, stretchIndex, frame_len, turnAngle, sampling_stride, window_head, window_len);
 
         // Single ISAR imaging process
-        isarMainSingle(h_img, data_style, h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
+        isarMainSingle(h_img, data_type, h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
 
         //writeFile("F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), h_img, 256 * 512);
         

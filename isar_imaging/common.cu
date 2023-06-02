@@ -2,9 +2,6 @@
 
 
 /* CUDAHandle Class */
-CUDAHandle::CUDAHandle() { }
-
-
 void CUDAHandle::handleInit(const int& echo_num, const int& range_num)
 {
 	checkCudaErrors(cublasCreate(&handle));
@@ -53,9 +50,6 @@ void CUDAHandle::handleDest()
 	checkCudaErrors(cufftDestroy(plan_all_range_c2c_czt));
 	checkCudaErrors(cufftDestroy(plan_all_echo_c2c_cut));
 }
-
-
-CUDAHandle::~CUDAHandle() { }
 
 
 void getMax(cublasHandle_t handle, float* d_vec, int len, int* h_max_idx, float* h_max_val)
@@ -628,13 +622,11 @@ int nonUniformSampling() {
 
 
 /* ioOperation Class */
-ioOperation::ioOperation() { }
-
-
-void ioOperation::ioInit(std::string* INTERMEDIATE_DIR, const std::string& file_path, const int& file_type)
+void ioOperation::ioInit(std::string* INTERMEDIATE_DIR, const std::string& file_path, const int& polar_type, const int& data_type)
 {
 	m_file_path = file_path;
-	m_file_type = file_type;
+	m_polar_type = polar_type;
+	m_data_type = data_type;
 
 	// validating file_path
 	fs::path fs_file_path(m_file_path);
@@ -647,9 +639,6 @@ void ioOperation::ioInit(std::string* INTERMEDIATE_DIR, const std::string& file_
 	// assign global variables
 	*INTERMEDIATE_DIR = m_dir_path + std::string("\\intermediate\\");
 }
-
-
-ioOperation::~ioOperation() {}
 
 
 int ioOperation::getSystemParas(RadarParameters* paras, int* frame_len, int* frame_num)

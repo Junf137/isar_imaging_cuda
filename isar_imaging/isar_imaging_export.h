@@ -9,7 +9,12 @@
 #define DLL_EXPORT_API __declspec(dllexport)  // [todo] dllexport ? dllimport
 
 
-/// ---* This header file export main imaging function in c++ API using c-style naming standard *---
+/**********************
+ * This header file exports main imaging function as c++ API using c-style naming standard
+ **********************/
+
+
+ // Duplicate from 'common.cuh'
 typedef std::vector<int> vec1D_INT;
 typedef std::vector<std::vector<int>> vec2D_INT;
 typedef std::vector<float> vec1D_FLT;
@@ -38,9 +43,11 @@ extern "C" DLL_EXPORT_API int gpuDevInit();
 /// <param name="frame_len"></param>
 /// <param name="frame_num"></param>
 /// <param name="file_path"></param>
+/// <param name="polar_type"></param>
+/// <param name="data_type"></param>
 /// <returns></returns>
 extern "C" DLL_EXPORT_API int dataParsing(vec2D_DBL * dataN, vec1D_INT * stretchIndex, vec1D_FLT * turnAngle, int* frame_len, int* frame_num, \
-	const std::string & file_path);
+	const std::string & file_path, const int& polar_type, const int& data_type);
 
 
 /// <summary>
@@ -83,7 +90,7 @@ extern "C" DLL_EXPORT_API void imagingMemInit(float** h_img, vec1D_INT * dataWFi
 /// Result is a matrix of size (echo_num * range_num), stored in memory pointed by h_img.
 /// </summary>
 /// <param name="h_img"></param>
-/// <param name="data_style"></param>
+/// <param name="data_type"></param>
 /// <param name="h_data"></param>
 /// <param name="dataNOut"></param>
 /// <param name="option_alignment"></param>
@@ -92,7 +99,7 @@ extern "C" DLL_EXPORT_API void imagingMemInit(float** h_img, vec1D_INT * dataWFi
 /// <param name="if_mtrc"></param>
 /// <returns></returns>
 extern "C" DLL_EXPORT_API void isarMainSingle(float* h_img, \
-	const int& data_style, const std::complex<float>*h_data, const vec2D_DBL & dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc);
+	const int& data_type, const std::complex<float>*h_data, const vec2D_DBL & dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc);
 
 
 /// <summary>
