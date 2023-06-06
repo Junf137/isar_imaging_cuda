@@ -40,17 +40,7 @@ int dataParsing(vec2D_DBL* dataN, vec1D_FLT* turnAngle, int* frame_len, int* fra
 
     io.getSystemParas(&paras, frame_len, frame_num);
 
-    switch (static_cast<DATA_TYPE>(data_type)) {
-    case DATA_TYPE::IFDS:
-        io.readKuIFDSAllNB(dataN, turnAngle, paras, *frame_len, *frame_num);
-        break;
-    case DATA_TYPE::STRETCH:
-        io.readKuIFDSALLNBStretch(dataN, turnAngle, paras, *frame_len, *frame_num);
-        break;
-    default:
-        std::cout << "[dataParsing/ERROR] Invalid data type: " << static_cast<DATA_TYPE>(data_type) << " !\n";
-        return EXIT_FAILURE;
-    }
+    io.readKuIFDSAllNB(dataN, turnAngle, paras, *frame_len, *frame_num);
 
 #ifdef SEPARATE_TIMEING_
     auto t_data_parsing_2 = std::chrono::high_resolution_clock::now();

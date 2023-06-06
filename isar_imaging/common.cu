@@ -642,7 +642,7 @@ void ioOperation::ioInit(std::string* INTERMEDIATE_DIR, const std::string& dir_p
 		file_pattern = (m_polar_type == POLAR_TYPE::LHP) ? R"(.*01_1100.*\.wbd)" : R"(.*01_1101.*\.wbd)";  // regex matches "*01_1100*.wbd" and "*01_1101*.wbd"
 		break;
 	case DATA_TYPE::STRETCH:
-		file_pattern = (m_polar_type == POLAR_TYPE::RHP) ? R"(.*00_1100\.wbd)" : R"(.*00_1101\.wbd)";  // regex matches "*00_1100.wbd" and "*00_1101.wbd"
+		file_pattern = (m_polar_type == POLAR_TYPE::LHP) ? R"(.*00_1100\.wbd)" : R"(.*00_1101\.wbd)";  // regex matches "*00_1100.wbd" and "*00_1101.wbd"
 		break;
 	default:
 		std::cout << "[ioInit/ERROR] Invalid data type!\n";
@@ -712,24 +712,21 @@ int ioOperation::getSystemParas(RadarParameters* paras, int* frame_len, int* fra
 int ioOperation::readKuIFDSAllNB(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
 	const RadarParameters& paras, const int& frame_len, const int& frame_num)
 {
-	return EXIT_SUCCESS;
-}
-
-
-int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
-	const RadarParameters& paras, const int& frame_len, const int& frame_num)
-{
-	std::ifstream ifs;
-	ifs.open(m_file_vec[0], std::ios_base::in | std::ios_base::binary);
-	if (!ifs) {
-		std::cout << "[readKuIFDSALLNBStretch/WARN] Cannot open file " << m_file_vec[0] << " !\n";
-		return EXIT_FAILURE;
+	std::vector<std::ifstream> ifs_vec(m_file_vec.size());
+	for (int i = 0; i < m_file_vec.size(); ++i) {
+		ifs_vec[i].open(m_file_vec[i], std::ios_base::in | std::ios_base::binary);
+		if (!ifs_vec[i]) {
+			std::cout << "[readKuIFDSALLNBStretch/WARN] Cannot open file " << m_file_vec[i] << " !\n";
+			return EXIT_FAILURE;
+		}
 	}
 
-	dataN->resize(frame_num);
+	int frame_num_total = frame_num * m_file_vec.size();
 
-	vec1D_FLT azimuthVec(frame_num);  // todo: expanding to double?
-	vec1D_FLT pitchingVec(frame_num);
+	dataN->resize(frame_num_total);
+
+	vec1D_FLT azimuthVec(frame_num_total);  // todo: expanding to double?
+	vec1D_FLT pitchingVec(frame_num_total);
 
 	uint32_t headerData[11]{};
 
@@ -738,11 +735,14 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_FLT* turnAngle, 
 	double azimuth = 0;
 	double pitching = 0;
 
-	for (int i = 0; i < frame_num; i++) {
+	int file_idx = 0;  // file need to read
+	for (int i = 0; i < frame_num_total; i++) {
 
-		ifs.seekg(i * frame_len + 48, ifs.beg);
+		file_idx = i / frame_num;
 
-		ifs.read((char*)&headerData, sizeof(uint32_t) * 11);
+		ifs_vec[file_idx].seekg((i - file_idx * frame_num) * frame_len + 48, std::ifstream::beg);
+
+		ifs_vec[file_idx].read((char*)&headerData, sizeof(uint32_t) * 11);
 
 		range = static_cast<double>(headerData[7]) * 0.1;
 		velocity = static_cast<double>(headerData[8]);
@@ -764,7 +764,9 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_FLT* turnAngle, 
 
 	turnAngleLine(turnAngle, azimuthVec, pitchingVec);
 
-	ifs.close();
+	for (int i = 0; i < m_file_vec.size(); ++i) {
+		ifs_vec[i].close();
+	}
 
 	return EXIT_SUCCESS;
 }

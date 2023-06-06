@@ -622,7 +622,8 @@ public:
 	int getSystemParas(RadarParameters* paras, int* frame_len, int* frame_num);
 
 	/// <summary>
-	/// 
+	/// Read narrow-band information from all matched file under given directory(IFDS and STRETCH mode).
+	/// [todo] update data parsing protocol in STRETCH mode based on new parsing file('Read_Ku_IFDS_ALLNB_Stretch.m').
 	/// </summary>
 	/// <param name="dataN"></param>
 	/// <param name="turnAngle"></param>
@@ -631,18 +632,6 @@ public:
 	/// <param name="frame_num"></param>
 	/// <returns></returns>
 	int readKuIFDSAllNB(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
-		const RadarParameters& paras, const int& frame_len, const int& frame_num);
-
-	/// <summary>
-	/// 
-	/// </summary>
-	/// <param name="dataN"></param>
-	/// <param name="turnAngle"></param>
-	/// <param name="paras"></param>
-	/// <param name="frame_len"></param>
-	/// <param name="frame_num"></param>
-	/// <returns></returns>
-	int readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
 		const RadarParameters& paras, const int& frame_len, const int& frame_num);
 
 	/// <summary>

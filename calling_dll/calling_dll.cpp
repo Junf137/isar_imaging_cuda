@@ -53,7 +53,9 @@ int main()
     dataParsing(&dataN, &turnAngle, &frame_len, &frame_num, dir_path, polar_type, data_type);
 
     // * Data initialization
-    imagingMemInit(&h_img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW,  window_len, frame_len);
+    if (data_type == DATA_TYPE::STRETCH) {
+        imagingMemInit(&h_img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len);
+    }
     const std::complex<float>* h_data = dataW.data();
 
     // * Sequential imaging process
