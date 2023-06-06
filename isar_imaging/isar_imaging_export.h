@@ -4,6 +4,10 @@
 #include <string>
 #include <vector>
 #include <complex>
+#include <iostream>
+#include <fstream>
+#include <chrono>
+#include <iomanip>
 
 
 #define DLL_EXPORT_API __declspec(dllexport)  // [todo] dllexport ? dllimport
@@ -38,16 +42,15 @@ extern "C" DLL_EXPORT_API int gpuDevInit();
 /// This function should be called only once for any file.
 /// </summary>
 /// <param name="dataN"></param>
-/// <param name="stretchIndex"></param>
 /// <param name="turnAngle"></param>
 /// <param name="frame_len"></param>
 /// <param name="frame_num"></param>
-/// <param name="file_path"></param>
+/// <param name="dir_path"></param>
 /// <param name="polar_type"></param>
 /// <param name="data_type"></param>
 /// <returns></returns>
-extern "C" DLL_EXPORT_API int dataParsing(vec2D_DBL * dataN, vec1D_INT * stretchIndex, vec1D_FLT * turnAngle, int* frame_len, int* frame_num, \
-	const std::string & file_path, const int& polar_type, const int& data_type);
+extern "C" DLL_EXPORT_API int dataParsing(vec2D_DBL * dataN, vec1D_FLT * turnAngle, int* frame_len, int* frame_num, \
+	const std::string & dir_path, const int& polar_type, const int& data_type);
 
 
 /// <summary>
@@ -58,7 +61,6 @@ extern "C" DLL_EXPORT_API int dataParsing(vec2D_DBL * dataN, vec1D_INT * stretch
 /// <param name="turnAngleOut"></param>
 /// <param name="dataW"></param>
 /// <param name="dataN"></param>
-/// <param name="stretchIndex"></param>
 /// <param name="frame_len"></param>
 /// <param name="turnAngle"></param>
 /// <param name="sampling_stride"></param>
@@ -66,7 +68,7 @@ extern "C" DLL_EXPORT_API int dataParsing(vec2D_DBL * dataN, vec1D_INT * stretch
 /// <param name="window_len"></param>
 /// <returns></returns>
 extern "C" DLL_EXPORT_API int dataExtracting(vec1D_INT * dataWFileSn, vec2D_DBL * dataNOut, vec1D_FLT * turnAngleOut, vec1D_COM_FLT * dataW, \
-	const vec2D_DBL & dataN, const vec1D_INT & stretchIndex, const int frame_len, const vec1D_FLT & turnAngle, const int& sampling_stride, const int& window_head, const int& window_len);
+	const vec2D_DBL & dataN, const int frame_len, const vec1D_FLT & turnAngle, const int& sampling_stride, const int& window_head, const int& window_len);
 
 
 /// <summary>

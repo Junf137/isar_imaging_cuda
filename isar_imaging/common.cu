@@ -622,21 +622,48 @@ int nonUniformSampling() {
 
 
 /* ioOperation Class */
-void ioOperation::ioInit(std::string* INTERMEDIATE_DIR, const std::string& file_path, const int& polar_type, const int& data_type)
+void ioOperation::ioInit(std::string* INTERMEDIATE_DIR, const std::string& dir_path, const POLAR_TYPE& polar_type, const DATA_TYPE& data_type)
 {
-	m_file_path = file_path;
+	m_dir_path = fs::absolute(dir_path).string();
 	m_polar_type = polar_type;
 	m_data_type = data_type;
+	m_file_vec.clear();
 
-	// validating file_path
-	fs::path fs_file_path(m_file_path);
-	if (fs::is_regular_file(fs_file_path) == false) {
-		std::cout << "[ioInit/WARN] Invalid file path!\n";
+	// Check if 'dir_path' is a valid directory
+	if (!fs::is_directory(m_dir_path)) {
+		std::cout << "[ioInit/ERROR] Invalid directory path!\n";
 		return;
 	}
-	m_dir_path = fs_file_path.parent_path().string();
 
-	// assign global variables
+	// Construct the file name pattern based on 'polar_type'
+	std::string file_pattern;
+	switch (m_data_type) {
+	case DATA_TYPE::IFDS:
+		file_pattern = (m_polar_type == POLAR_TYPE::LHP) ? R"(.*01_1100.*\.wbd)" : R"(.*01_1101.*\.wbd)";  // regex matches "*01_1100*.wbd" and "*01_1101*.wbd"
+		break;
+	case DATA_TYPE::STRETCH:
+		file_pattern = (m_polar_type == POLAR_TYPE::RHP) ? R"(.*00_1100\.wbd)" : R"(.*00_1101\.wbd)";  // regex matches "*00_1100.wbd" and "*00_1101.wbd"
+		break;
+	default:
+		std::cout << "[ioInit/ERROR] Invalid data type!\n";
+		break;
+	}
+	std::regex regex_pattern(file_pattern);
+
+	// Iterate over the directory and find files matching the pattern
+	for (const auto& entry : fs::directory_iterator(m_dir_path)) {
+		std::string file_name = fs::path(entry).string();
+		if (entry.is_regular_file() && std::regex_match(file_name, regex_pattern)) {
+			m_file_vec.push_back(file_name);
+		}
+	}
+
+	if (m_file_vec.size() == 0) {
+		std::cout << "[ioInit/ERROR] No valid file in the given directory!\n";
+		return;
+	}
+
+	// Assign INTERMEDIATE_DIR
 	*INTERMEDIATE_DIR = m_dir_path + std::string("\\intermediate\\");
 }
 
@@ -644,9 +671,9 @@ void ioOperation::ioInit(std::string* INTERMEDIATE_DIR, const std::string& file_
 int ioOperation::getSystemParas(RadarParameters* paras, int* frame_len, int* frame_num)
 {
 	std::ifstream ifs;
-	ifs.open(m_file_path, std::ios_base::in | std::ios_base::binary);
+	ifs.open(m_file_vec[0], std::ios_base::in | std::ios_base::binary);
 	if (!ifs) {
-		std::cout << "[getSystemParas/WARN] Cannot open file " << m_file_path << " !\n";
+		std::cout << "[getSystemParas/WARN] Cannot open file " << m_file_vec[0] << " !\n";
 		return EXIT_FAILURE;
 	}
 
@@ -655,13 +682,26 @@ int ioOperation::getSystemParas(RadarParameters* paras, int* frame_len, int* fra
 	uint32_t temp[36]{};
 	ifs.read((char*)&temp, sizeof(uint32_t) * 36);  // 144 bytes in total
 
-	// [Caution] Possibly bits overflow
-	*frame_len = static_cast<int>(temp[4] * 4);  // length of frame, including frame head and orthogonal demodulation data.(unit: Byte)
-	paras->fc = static_cast<long long>(temp[12] * 1e6);  // signal carrier frequency
-	paras->band_width = static_cast<long long>(temp[13] * 1e6);  // signal band width
-	paras->Tp = static_cast<double>(temp[15] / 1e6);  // pulse width
-	paras->Fs = static_cast<int>((temp[17] % static_cast<int>(std::pow(2, 16))) * 1e6);  // sampling frequency
-	*frame_num = static_cast<int>(fs::file_size(fs::path(m_file_path))) / *frame_len;  // total frame number in file
+	*frame_len = static_cast<int>(temp[4]) * 4;  // length of frame, including frame head and orthogonal demodulation data.(unit: Byte)
+	paras->fc = static_cast<long long>(temp[12]) * 1000000LL;  // signal carrier frequency
+	paras->band_width = static_cast<long long>(temp[13]) * 1000000LL;  // signal band width
+	paras->Tp = static_cast<double>(temp[15]) / 1000000.0;  // pulse width
+
+	// sampling frequency
+	switch (m_data_type)
+	{
+	case DATA_TYPE::IFDS:
+		paras->Fs = static_cast<long long>(temp[17] % static_cast<uint32_t>(1 << 16)) * 1000000LL / 2LL;
+		break;
+	case DATA_TYPE::STRETCH:
+		paras->Fs = static_cast<long long>(temp[17] % static_cast<uint32_t>(1 << 16)) * 1000000LL;
+		break;
+	default:
+		std::cout << "[getSystemParas/ERROR] Invalid data type!\n";
+		break;
+	}
+
+	*frame_num = static_cast<int>(fs::file_size(fs::path(m_file_vec[0]))) / *frame_len;  // total frame number in file
 
 	ifs.close();
 
@@ -669,23 +709,28 @@ int ioOperation::getSystemParas(RadarParameters* paras, int* frame_len, int* fra
 }
 
 
-int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_INT* stretchIndex, vec1D_FLT* turnAngle, \
+int ioOperation::readKuIFDSAllNB(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
+	const RadarParameters& paras, const int& frame_len, const int& frame_num)
+{
+	return EXIT_SUCCESS;
+}
+
+
+int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
 	const RadarParameters& paras, const int& frame_len, const int& frame_num)
 {
 	std::ifstream ifs;
-	ifs.open(m_file_path, std::ios_base::in | std::ios_base::binary);
+	ifs.open(m_file_vec[0], std::ios_base::in | std::ios_base::binary);
 	if (!ifs) {
-		std::cout << "[readKuIFDSALLNBStretch/WARN] Cannot open file " << m_file_path << " !\n";
+		std::cout << "[readKuIFDSALLNBStretch/WARN] Cannot open file " << m_file_vec[0] << " !\n";
 		return EXIT_FAILURE;
 	}
 
 	dataN->resize(frame_num);
-	stretchIndex->resize(frame_num);
 
 	vec1D_FLT azimuthVec(frame_num);  // todo: expanding to double?
 	vec1D_FLT pitchingVec(frame_num);
 
-	//uint64_t sysTime = 0;
 	uint32_t headerData[11]{};
 
 	double range = 0;  // unit: m
@@ -693,16 +738,9 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_INT* stretchInde
 	double azimuth = 0;
 	double pitching = 0;
 
-	//float timeYear = 0;  // only need to be read once
-	//float timeMonth = 0;
-	//float timeDay = 0;
 	for (int i = 0; i < frame_num; i++) {
-		stretchIndex->at(i) = i * frame_len + 256;
 
-		//ifs.seekg(i * frame_len + 40, ifs.beg);
 		ifs.seekg(i * frame_len + 48, ifs.beg);
-
-		//ifs.read((char*)&sysTime, sizeof(uint64_t));
 
 		ifs.read((char*)&headerData, sizeof(uint32_t) * 11);
 
@@ -711,7 +749,6 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_INT* stretchInde
 		azimuth = static_cast<double>(headerData[9]);
 		pitching = static_cast<double>(headerData[10]);
 
-		// [caution]: possible bit overflow
 		velocity = (velocity - (velocity > std::pow(2, 31) ? std::pow(2, 32) : 0)) * 0.1;
 
 		azimuth = (azimuth - (azimuth > std::pow(2, 31) ? std::pow(2, 32) : 0)) * (360.0 / std::pow(2, 24));
@@ -720,14 +757,6 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_INT* stretchInde
 		pitching = (pitching - (pitching > std::pow(2, 31) ? std::pow(2, 32) : 0)) * (360.0 / std::pow(2, 24));
 		pitching += (pitching < 0 ? 360.0 : 0);
 
-		//ifs.seekg(i * frame_len + 32, ifs.beg);
-		//if (i == 0) {
-		//	ifs.read((char*)&timeYear, sizeof(uint16_t));
-		//	ifs.read((char*)&timeMonth, sizeof(uint8_t));
-		//	ifs.read((char*)&timeDay, sizeof(uint8_t));
-		//}
-
-		//dataN->at(i) = vec1D_DBL({ range, velocity, azimuth, pitching, static_cast<double>(sysTime), static_cast<double>(timeYear), static_cast<double>(timeMonth), static_cast<double>(timeDay) });
 		dataN->at(i) = vec1D_DBL({ range, velocity, azimuth, pitching });
 		azimuthVec[i] = static_cast<float>(azimuth);
 		pitchingVec[i] = static_cast<float>(pitching);
@@ -741,13 +770,20 @@ int ioOperation::readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_INT* stretchInde
 }
 
 
+int ioOperation::getKuData(vec1D_COM_FLT* dataW, vec1D_INT* frameHeader, \
+	const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len)
+{
+	return EXIT_SUCCESS;
+}
+
+
 int ioOperation::getKuDataStretch(vec1D_COM_FLT* dataW, vec1D_INT* frameHeader, \
-	const vec1D_INT& stretchIndex, const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len)
+	const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len)
 {
 	std::ifstream ifs;
-	ifs.open(m_file_path, std::ios_base::in | std::ios_base::binary);
+	ifs.open(m_file_vec[0], std::ios_base::in | std::ios_base::binary);
 	if (!ifs) {
-		std::cout << "[getKuDataStretch/WARN] Cannot open file " << m_file_path << " !\n";
+		std::cout << "[getKuDataStretch/WARN] Cannot open file " << m_file_vec[0] << " !\n";
 		return EXIT_FAILURE;
 	}
 
@@ -755,14 +791,10 @@ int ioOperation::getKuDataStretch(vec1D_COM_FLT* dataW, vec1D_INT* frameHeader, 
 	int16_t* dataADTemp = new int16_t[dataADTempSize];
 	
 	for (int i = 0; i < window_len; ++i) {
-		//fseek(fid1, StretchIndex(DataW_FileSn(i), 1), 'bof');
-		ifs.seekg(stretchIndex[dataWFileSn[i]], ifs.beg);
+		ifs.seekg(dataWFileSn[i] * frame_len + 256, ifs.beg);
 
-		//DataAD = fread(fid1, (StretchIndex(DataW_FileSn(i), 2) - 256) / 2, 'int16');
 		ifs.read((char*)dataADTemp, dataADTempSize * sizeof(int16_t));
 
-		//data_AD = DataAD(1:2 : end) + 1i * DataAD(2:2 : end);
-		//DataW(i, :) = data_AD.';
 		for (int j = 0; (j + 1) < dataADTempSize; j += 2) {
 			dataW->at(i * (dataADTempSize / 2) + (j / 2)) = std::complex<float>(static_cast<float>(dataADTemp[j]), static_cast<float>(dataADTemp[j + 1]));
 		}
@@ -775,19 +807,19 @@ int ioOperation::getKuDataStretch(vec1D_COM_FLT* dataW, vec1D_INT* frameHeader, 
 	DataRead = fread(fid1, 108, 'uint8');
 	FrameHeader = [DataRead(1:12, 1); DataRead(101:104, 1); DataRead(77:92, 1); DataRead(97:100, 1); DataRead(33:38, 1); DataRead(31, 1); DataRead(105:108, 1); DataRead(61:64, 1); ];
 	*/
-	ifs.seekg(stretchIndex[dataWFileSn[0]] - 256, ifs.beg);
+	//ifs.seekg(dataWFileSn[0] * frame_len, ifs.beg);
 
-	uint8_t frameHeaderTemp[108]{};
-	ifs.read((char*)&frameHeaderTemp, sizeof(frameHeaderTemp));
+	//uint8_t frameHeaderTemp[108]{};
+	//ifs.read((char*)&frameHeaderTemp, sizeof(frameHeaderTemp));
 
-	frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 0, frameHeaderTemp + 12);
-	frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 100, frameHeaderTemp + 104);
-	frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 76, frameHeaderTemp + 92);
-	frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 96, frameHeaderTemp + 100);
-	frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 32, frameHeaderTemp + 38);
-	frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 30, frameHeaderTemp + 31);
-	frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 104, frameHeaderTemp + 108);
-	frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 60, frameHeaderTemp + 64);
+	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 0, frameHeaderTemp + 12);
+	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 100, frameHeaderTemp + 104);
+	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 76, frameHeaderTemp + 92);
+	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 96, frameHeaderTemp + 100);
+	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 32, frameHeaderTemp + 38);
+	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 30, frameHeaderTemp + 31);
+	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 104, frameHeaderTemp + 108);
+	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 60, frameHeaderTemp + 64);
 
 	ifs.close();
 

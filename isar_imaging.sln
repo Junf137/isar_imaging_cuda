@@ -9,8 +9,6 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "cuda_test", "cuda_test\cuda
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "calling_dll", "calling_dll\calling_dll.vcxproj", "{CC23F27E-D71D-433D-8368-C434F62C79AB}"
 EndProject
-Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "mat_loading", "mat_loading\mat_loading.vcxproj", "{D21BC25B-D660-43E5-B258-E0013B894BA0}"
-EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -43,14 +41,6 @@ Global
 		{CC23F27E-D71D-433D-8368-C434F62C79AB}.Release|x64.Build.0 = Release|x64
 		{CC23F27E-D71D-433D-8368-C434F62C79AB}.Release|x86.ActiveCfg = Release|Win32
 		{CC23F27E-D71D-433D-8368-C434F62C79AB}.Release|x86.Build.0 = Release|Win32
-		{D21BC25B-D660-43E5-B258-E0013B894BA0}.Debug|x64.ActiveCfg = Debug|x64
-		{D21BC25B-D660-43E5-B258-E0013B894BA0}.Debug|x64.Build.0 = Debug|x64
-		{D21BC25B-D660-43E5-B258-E0013B894BA0}.Debug|x86.ActiveCfg = Debug|Win32
-		{D21BC25B-D660-43E5-B258-E0013B894BA0}.Debug|x86.Build.0 = Debug|Win32
-		{D21BC25B-D660-43E5-B258-E0013B894BA0}.Release|x64.ActiveCfg = Release|x64
-		{D21BC25B-D660-43E5-B258-E0013B894BA0}.Release|x64.Build.0 = Release|x64
-		{D21BC25B-D660-43E5-B258-E0013B894BA0}.Release|x86.ActiveCfg = Release|Win32
-		{D21BC25B-D660-43E5-B258-E0013B894BA0}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

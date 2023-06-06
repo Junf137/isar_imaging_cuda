@@ -28,19 +28,29 @@ int gpuDevInit()
 }
 
 
-int dataParsing(vec2D_DBL* dataN, vec1D_INT* stretchIndex, vec1D_FLT* turnAngle, int* frame_len, int* frame_num, \
-    const std::string& file_path, const int& polar_type, const int& data_type)
+int dataParsing(vec2D_DBL* dataN, vec1D_FLT* turnAngle, int* frame_len, int* frame_num, \
+    const std::string& dir_path, const int& polar_type, const int& data_type)
 {
 #ifdef SEPARATE_TIMEING_
     std::cout << "---* Starting Data Parsing *---\n";
     auto t_data_parsing_1 = std::chrono::high_resolution_clock::now();
 #endif // SEPARATE_TIMEING_
 
-    io.ioInit(&INTERMEDIATE_DIR, file_path, polar_type, data_type);
+    io.ioInit(&INTERMEDIATE_DIR, dir_path, static_cast<POLAR_TYPE>(polar_type), static_cast<DATA_TYPE>(data_type));
 
     io.getSystemParas(&paras, frame_len, frame_num);
 
-    io.readKuIFDSALLNBStretch(dataN, stretchIndex, turnAngle, paras, *frame_len, *frame_num);
+    switch (static_cast<DATA_TYPE>(data_type)) {
+    case DATA_TYPE::IFDS:
+        io.readKuIFDSAllNB(dataN, turnAngle, paras, *frame_len, *frame_num);
+        break;
+    case DATA_TYPE::STRETCH:
+        io.readKuIFDSALLNBStretch(dataN, turnAngle, paras, *frame_len, *frame_num);
+        break;
+    default:
+        std::cout << "[dataParsing/ERROR] Invalid data type: " << static_cast<DATA_TYPE>(data_type) << " !\n";
+        return EXIT_FAILURE;
+    }
 
 #ifdef SEPARATE_TIMEING_
     auto t_data_parsing_2 = std::chrono::high_resolution_clock::now();
@@ -54,7 +64,7 @@ int dataParsing(vec2D_DBL* dataN, vec1D_INT* stretchIndex, vec1D_FLT* turnAngle,
 
 
 int dataExtracting(vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
-    const vec2D_DBL& dataN, const vec1D_INT& stretchIndex, const int frame_len, const vec1D_FLT& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len)
+    const vec2D_DBL& dataN, const int frame_len, const vec1D_FLT& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len)
 {
 #ifdef SEPARATE_TIMEING_
     std::cout << "---* Starting Data Extracting *---\n";
@@ -70,7 +80,7 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnA
     }
 
     vec1D_INT frameHeader;
-    io.getKuDataStretch(dataW, &frameHeader, stretchIndex, frame_len, *dataWFileSn, window_len);
+    io.getKuDataStretch(dataW, &frameHeader, frame_len, *dataWFileSn, window_len);
 
     // manually set range_num and data_num back to original values
     paras.echo_num = window_len;
@@ -140,7 +150,7 @@ void imagingMemInit(float** h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, 
 void isarMainSingle(float* h_img, \
     const int& data_type, const std::complex<float>* h_data, const vec2D_DBL& dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
 {
-    ISAR_RD_Imaging_Main_Ku(h_img, d_data, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, data_type, h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
+    ISAR_RD_Imaging_Main_Ku(h_img, d_data, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, static_cast<DATA_TYPE>(data_type), h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
 }
 
 

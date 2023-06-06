@@ -50,6 +50,7 @@
 #include <fstream>
 #include <iomanip>
 #include <filesystem>
+#include <regex>
 
 
 typedef std::vector<int> vec1D_INT;
@@ -75,18 +76,18 @@ constexpr auto DEFAULT_THREAD_PER_BLOCK = 256;
 namespace fs = std::filesystem;
 
 
-//enum DATA_TYPE
-//{
-//	IFDS = 1,	// IFDS data
-//	STRETCH		// stretch data
-//};
-//
-//
-//enum POLAR_TYPE
-//{
-//	LHP = 0,	// left-hand polarization
-//	RHP			// right-hand polarization
-//};
+enum DATA_TYPE
+{
+	DEFAULT = 0,	// 
+	IFDS = 1,	// IFDS data
+	STRETCH = 2		// stretch data
+};
+
+enum POLAR_TYPE
+{
+	LHP = 0,	// left-hand polarization
+	RHP = 1	    // right-hand polarization
+};
 
 
 struct RadarParameters
@@ -97,14 +98,14 @@ struct RadarParameters
 	long long band_width;
 	long long fc;
 	double Tp;
-	int Fs;
+	long long Fs;
 
 	// default constructor and equality operator
 	RadarParameters() = default;
 
 	bool operator==(const RadarParameters& other) const = default;
 
-	RadarParameters(int echo_num, int range_num, int data_num, long long band_width, long long fc, double Tp, int Fs)
+	RadarParameters(int echo_num, int range_num, int data_num, long long band_width, long long fc, double Tp, long long Fs)
 		: echo_num(echo_num), range_num(range_num), data_num(data_num), band_width(band_width), fc(fc), Tp(Tp), Fs(Fs)
 	{
 	}
@@ -568,9 +569,9 @@ class ioOperation
 {
 private:
 	std::string m_dir_path;  // directory path
-	std::string m_file_path;  // file path
-	int m_polar_type;  // file polar type
-	int m_data_type;  // file data type
+	std::vector<std::string> m_file_vec;
+	POLAR_TYPE m_polar_type;  // file polar type
+	DATA_TYPE m_data_type;  // file data type
 
 public:
 	/// <summary>
@@ -581,8 +582,12 @@ public:
 	/// <summary>
 	/// Constructor with all filed
 	/// </summary>
-	ioOperation(const std::string& dir_path, const std::string& file_path, int polar_type, int data_type)
-		: m_dir_path(dir_path), m_file_path(file_path), m_polar_type(polar_type), m_data_type(data_type)
+	/// <param name="m_dir_path"></param>
+	/// <param name="m_file_vec"></param>
+	/// <param name="m_polar_type"></param>
+	/// <param name="m_data_type"></param>
+	ioOperation(const std::string& dir_path, const std::vector<std::string>& file_vec, POLAR_TYPE polar_type, DATA_TYPE data_type)
+		: m_dir_path(dir_path), m_file_vec(file_vec), m_polar_type(polar_type), m_data_type(data_type)
 	{
 	}
 
@@ -599,16 +604,16 @@ public:
 	bool operator==(const ioOperation& other) const = default;
 
 	/// <summary>
-	/// Object initialization.
+	/// Object initialization(IFDS and STRETCH mode).
 	/// </summary>
 	/// <param name="INTERMEDIATE_DIR"></param>
-	/// <param name="file_path"></param>
+	/// <param name="dir_path"></param>
 	/// <param name="polar_type"></param>
 	/// <param name="data_type"></param>
-	void ioInit(std::string* INTERMEDIATE_DIR, const std::string& file_path, const int& polar_type, const int& data_type);
+	void ioInit(std::string* INTERMEDIATE_DIR, const std::string& dir_path, const POLAR_TYPE& polar_type, const DATA_TYPE& data_type);
 
 	/// <summary>
-	/// Retrieving basic radar echo signal information.
+	/// Get system parameters from the first file(IFDS and STRETCH mode).
 	/// </summary>
 	/// <param name="paras"></param>
 	/// <param name="frame_len"></param>
@@ -620,13 +625,24 @@ public:
 	/// 
 	/// </summary>
 	/// <param name="dataN"></param>
-	/// <param name="stretchIndex"></param>
 	/// <param name="turnAngle"></param>
 	/// <param name="paras"></param>
 	/// <param name="frame_len"></param>
 	/// <param name="frame_num"></param>
 	/// <returns></returns>
-	int readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_INT* stretchIndex, vec1D_FLT* turnAngle, \
+	int readKuIFDSAllNB(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
+		const RadarParameters& paras, const int& frame_len, const int& frame_num);
+
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="dataN"></param>
+	/// <param name="turnAngle"></param>
+	/// <param name="paras"></param>
+	/// <param name="frame_len"></param>
+	/// <param name="frame_num"></param>
+	/// <returns></returns>
+	int readKuIFDSALLNBStretch(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
 		const RadarParameters& paras, const int& frame_len, const int& frame_num);
 
 	/// <summary>
@@ -639,8 +655,21 @@ public:
 	/// <param name="dataWFileSn"></param>
 	/// <param name="window_len"></param>
 	/// <returns></returns>
+	int getKuData(vec1D_COM_FLT* dataW, vec1D_INT* frameHeader, \
+		const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len);
+
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="dataW"></param>
+	/// <param name="frameHeader"></param>
+	/// <param name="stretchIndex"></param>
+	/// <param name="frame_len"></param>
+	/// <param name="dataWFileSn"></param>
+	/// <param name="window_len"></param>
+	/// <returns></returns>
 	int getKuDataStretch(vec1D_COM_FLT* dataW, vec1D_INT* frameHeader, \
-		const vec1D_INT& stretchIndex, const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len);
+		const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len);
 
 	/// <summary>
 	/// write data reside in CPU memory back to outFilePath

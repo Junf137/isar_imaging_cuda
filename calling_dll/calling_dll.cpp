@@ -1,24 +1,33 @@
 #include "isar_imaging_export.h"
 
-#include <iostream>
-#include <chrono>
-#include <fstream>
-#include <iomanip>
+// duplicate from common.cuh
+enum DATA_TYPE
+{
+    DEFAULT = 0,	// 
+    IFDS    = 1,	// IFDS data
+    STRETCH = 2		// stretch data
+};
+
+enum POLAR_TYPE
+{
+    LHP = 0,	// left-hand polarization
+    RHP = 1	    // right-hand polarization
+};
 
 int writeFile(const std::string& outFilePath, const float* data, const  size_t& data_size);
 
 int main()
 {
     // * Imaging parameters
-    std::string file_path("F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\210425235341_047414_1383_00_1101.wbd");
+    //std::string dir_path("..\\..\\isar_imaging_data\\180411230920_000004_1318_01");  // IFDS
+    std::string dir_path("..\\..\\isar_imaging_data\\210425235341_047414_1383_00");  // STRETCH
     int imaging_stride = 10;
     int sampling_stride = 1;
     int window_head = 10 - 1;
     int window_len = 256;
-
     
-    int polar_type = 0;
-    int data_type = 2;
+    int polar_type = static_cast<int>((dir_path.find("210425235341_047414_1383_00") == std::string::npos) ? POLAR_TYPE::LHP : POLAR_TYPE::RHP);
+    int data_type = static_cast<int>((dir_path.find("210425235341_047414_1383_00") == std::string::npos) ? DATA_TYPE::IFDS : DATA_TYPE::STRETCH);
     int option_alignment = 0;
     int option_phase = 1;
     bool if_hpc = true;
@@ -26,7 +35,6 @@ int main()
 
     // * Data declaration
     vec2D_DBL dataN;
-    vec1D_INT stretchIndex;
     vec1D_FLT turnAngle;
     int frame_len = 0;
     int frame_num = 0;
@@ -42,7 +50,7 @@ int main()
 
     // * Starting imaging for file in dir_path
     // * Data parsing
-    dataParsing(&dataN, &stretchIndex, &turnAngle, &frame_len, &frame_num, file_path, polar_type, data_type);
+    dataParsing(&dataN, &turnAngle, &frame_len, &frame_num, dir_path, polar_type, data_type);
 
     // * Data initialization
     imagingMemInit(&h_img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW,  window_len, frame_len);
@@ -59,12 +67,12 @@ int main()
         auto t_imaging_1 = std::chrono::high_resolution_clock::now();
         
         // Data extracting
-        dataExtracting(&dataWFileSn, &dataNOut, &turnAngleOut, &dataW, dataN, stretchIndex, frame_len, turnAngle, sampling_stride, window_head, window_len);
+        dataExtracting(&dataWFileSn, &dataNOut, &turnAngleOut, &dataW, dataN, frame_len, turnAngle, sampling_stride, window_head, window_len);
 
         // Single ISAR imaging process
         isarMainSingle(h_img, data_type, h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
 
-        //writeFile("F:\\Users\\Project\\isar_imaging\\210425235341_047414_1383_00\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), h_img, 256 * 512);
+        //writeFile(dir_path + "\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), h_img, window_len * 512);
         
         window_head += imaging_stride;
 

@@ -228,7 +228,6 @@ void sumRowsTime(int rows, int cols)
 
 int main(int argc, char** argv)
 {
-
     // cufftTime
     //cufftTime(256 * 1000);
     //cufftTime(512 * 1000);
@@ -246,12 +245,12 @@ int main(int argc, char** argv)
     //matrixMulTime(8192, 1000);
 
 
-    sumRowsTime(256, 10000);
-    sumRowsTime(512, 10000);
-    sumRowsTime(1024, 10000);
-    sumRowsTime(2048, 10000);
-    sumRowsTime(4096, 10000);
-    sumRowsTime(8192, 10000);
+    //sumRowsTime(256, 10000);
+    //sumRowsTime(512, 10000);
+    //sumRowsTime(1024, 10000);
+    //sumRowsTime(2048, 10000);
+    //sumRowsTime(4096, 10000);
+    //sumRowsTime(8192, 10000);
 
 
     // * test for sum
