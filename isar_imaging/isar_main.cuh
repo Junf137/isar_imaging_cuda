@@ -32,8 +32,8 @@ extern std::string INTERMEDIATE_DIR;
 /// <param name="if_hpc"></param>
 /// <param name="if_mtrc"></param>
 /// <returns></returns>
-int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_cut, double* d_velocity, float* d_hamming, cuComplex* d_hrrp, float* d_hamming_echoes, float* d_img, \
-	RadarParameters& paras, const CUDAHandle& handles, const DATA_TYPE& data_type, const std::complex<float>* h_data, const vec2D_DBL& dataNOut, \
+int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_cut, double* d_velocity, float* d_hamming, cuComplex* d_hrrp, float* d_hamming_echoes, float* d_img, RadarParameters& paras, \
+	const CUDAHandle& handles, const DATA_TYPE& data_type, const std::complex<float>* h_data, const vec1D_DBL& dataNOut, \
 	const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc);
 
 #endif // ISAR_MAIN_H_

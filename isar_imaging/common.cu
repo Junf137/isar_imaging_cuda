@@ -593,8 +593,8 @@ float interpolate(const vec1D_INT& xData, const vec1D_FLT& yData, const int& x, 
 }
 
 
-int uniformSampling(vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnAngleOut, \
-	const vec2D_DBL& dataN, const vec1D_FLT& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len)
+int uniformSampling(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, \
+	const vec1D_DBL& dataN, const vec1D_FLT& turnAngle, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len)
 {
 	// dataWFileSn = window_head:sampling_stride:window_end;
 	for (int i = 0; i < window_len; ++i) {
@@ -602,7 +602,10 @@ int uniformSampling(vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turn
 	}
 
 	// extracting dataNout from dataN based on index from dataWFileSn
-	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin(), [&](const int& x) {return dataN[x]; });
+	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin() + 0 * window_len, [&](const int& x) {return dataN[x + 0 * frame_num]; });
+	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin() + 1 * window_len, [&](const int& x) {return dataN[x + 1 * frame_num]; });
+	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin() + 2 * window_len, [&](const int& x) {return dataN[x + 2 * frame_num]; });
+	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin() + 3 * window_len, [&](const int& x) {return dataN[x + 3 * frame_num]; });
 
 	// extracting turnANgleOut from turnANgle based on index from dataWFileSn
 	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), turnAngleOut->begin(), [&](const int& x) {return std::abs(turnAngle[x]); });
@@ -704,7 +707,7 @@ int ioOperation::getSystemParas(RadarParameters* paras, int* frame_len, int* fra
 }
 
 
-int ioOperation::readKuIFDSAllNB(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
+int ioOperation::readKuIFDSAllNB(vec1D_DBL* dataN, vec1D_FLT* turnAngle, \
 	const RadarParameters& paras, const int& frame_len, const int& frame_num)
 {
 	std::vector<std::ifstream> ifs_vec(m_file_vec.size());
@@ -718,7 +721,7 @@ int ioOperation::readKuIFDSAllNB(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
 
 	int frame_num_total = frame_num * static_cast<int>(m_file_vec.size());
 
-	dataN->resize(frame_num_total);
+	dataN->resize(frame_num_total * 4);
 
 	vec1D_FLT azimuthVec(frame_num_total);  // todo: expanding to double?
 	vec1D_FLT pitchingVec(frame_num_total);
@@ -752,7 +755,11 @@ int ioOperation::readKuIFDSAllNB(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
 		pitching = (pitching - (pitching > std::pow(2, 31) ? std::pow(2, 32) : 0)) * (360.0 / std::pow(2, 24));
 		pitching += (pitching < 0 ? 360.0 : 0);
 
-		dataN->at(i) = vec1D_DBL({ range, velocity, azimuth, pitching });
+		dataN->at(i + 0 * frame_num_total) = range;
+		dataN->at(i + 1 * frame_num_total) = velocity;
+		dataN->at(i + 2 * frame_num_total) = azimuth;
+		dataN->at(i + 3 * frame_num_total) = pitching;
+
 		azimuthVec[i] = static_cast<float>(azimuth);
 		pitchingVec[i] = static_cast<float>(pitching);
 	}

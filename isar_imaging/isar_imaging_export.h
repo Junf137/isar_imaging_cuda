@@ -49,7 +49,7 @@ extern "C" DLL_EXPORT_API int gpuDevInit();
 /// <param name="polar_type"></param>
 /// <param name="data_type"></param>
 /// <returns></returns>
-extern "C" DLL_EXPORT_API int dataParsing(vec2D_DBL * dataN, vec1D_FLT * turnAngle, int* frame_len, int* frame_num, \
+extern "C" DLL_EXPORT_API int dataParsing(vec1D_DBL * dataN, vec1D_FLT * turnAngle, int* frame_len, int* frame_num, \
 	const std::string & dir_path, const int& polar_type, const int& data_type);
 
 
@@ -61,14 +61,15 @@ extern "C" DLL_EXPORT_API int dataParsing(vec2D_DBL * dataN, vec1D_FLT * turnAng
 /// <param name="turnAngleOut"></param>
 /// <param name="dataW"></param>
 /// <param name="dataN"></param>
-/// <param name="frame_len"></param>
 /// <param name="turnAngle"></param>
+/// <param name="frame_len"></param>
+/// <param name="frame_num"></param>
 /// <param name="sampling_stride"></param>
 /// <param name="window_head"></param>
 /// <param name="window_len"></param>
 /// <returns></returns>
-extern "C" DLL_EXPORT_API int dataExtracting(vec1D_INT * dataWFileSn, vec2D_DBL * dataNOut, vec1D_FLT * turnAngleOut, vec1D_COM_FLT * dataW, \
-	const vec2D_DBL & dataN, const int frame_len, const vec1D_FLT & turnAngle, const int& sampling_stride, const int& window_head, const int& window_len);
+extern "C" DLL_EXPORT_API int dataExtracting(vec1D_INT * dataWFileSn, vec1D_DBL * dataNOut, vec1D_FLT * turnAngleOut, vec1D_COM_FLT * dataW, \
+	const vec1D_DBL & dataN, const vec1D_FLT & turnAngle, const int& frame_len, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len);
 
 
 /// <summary>
@@ -82,24 +83,10 @@ extern "C" DLL_EXPORT_API int dataExtracting(vec1D_INT * dataWFileSn, vec2D_DBL 
 /// <param name="dataW"></param>
 /// <param name="window_len"></param>
 /// <param name="frame_len"></param>
+/// <param name="data_type"></param>
 /// <returns></returns>
-extern "C" DLL_EXPORT_API void imagingMemInit(vec1D_FLT * h_img, vec1D_INT * dataWFileSn, vec2D_DBL * dataNOut, vec1D_FLT * turnAngleOut, vec1D_COM_FLT * dataW, \
-	const int& window_len, const int& frame_len);
-
-
-/// <summary>
-/// 
-/// </summary>
-/// <param name="h_img"></param>
-/// <param name="dataWFileSn"></param>
-/// <param name="dataNOut"></param>
-/// <param name="turnAngleOut"></param>
-/// <param name="dataW"></param>
-/// <param name="window_len"></param>
-/// <param name="frame_len"></param>
-/// <returns></returns>
-extern "C" DLL_EXPORT_API void imagingMemInitIFDS(vec1D_FLT * h_img, vec1D_INT * dataWFileSn, vec2D_DBL * dataNOut, vec1D_FLT * turnAngleOut, vec1D_COM_FLT * dataW, \
-	const int& window_len, const int& frame_len);
+extern "C" DLL_EXPORT_API void imagingMemInit(vec1D_FLT * h_img, vec1D_INT * dataWFileSn, vec1D_DBL * dataNOut, vec1D_FLT * turnAngleOut, vec1D_COM_FLT * dataW, \
+	const int& window_len, const int& frame_len, const int& data_type);
 
 
 /// <summary>
@@ -116,7 +103,17 @@ extern "C" DLL_EXPORT_API void imagingMemInitIFDS(vec1D_FLT * h_img, vec1D_INT *
 /// <param name="if_mtrc"></param>
 /// <returns></returns>
 extern "C" DLL_EXPORT_API void isarMainSingle(float* h_img, \
-	const int& data_type, const std::complex<float>*h_data, const vec2D_DBL & dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc);
+	const int& data_type, const std::complex<float>*h_data, const vec1D_DBL & dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc);
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="outFilePath"></param>
+/// <param name="data"></param>
+/// <param name="data_size"></param>
+/// <returns></returns>
+extern "C" DLL_EXPORT_API void writeFileFLT(const std::string& outFilePath, const float* data, const  size_t& data_size);
 
 
 /// <summary>

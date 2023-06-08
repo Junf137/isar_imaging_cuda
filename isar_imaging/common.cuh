@@ -68,6 +68,7 @@ constexpr auto PI_FLT = 3.14159265358979f;
 constexpr auto PI_DBL = 3.14159265358979;
 constexpr auto LIGHT_SPEED = 300000000;
 constexpr auto RANGE_NUM_CUT = 512;
+constexpr auto RANGE_NUM_IFDS_PC = 4096;
 constexpr auto FAST_ENTROPY_ITERATION_NUM = 120;
 constexpr auto MAX_THREAD_PER_BLOCK = 1024;
 constexpr auto DEFAULT_THREAD_PER_BLOCK = 256;
@@ -549,12 +550,13 @@ float interpolate(const vec1D_INT& xData, const vec1D_FLT& yData, const int& x, 
 /// <param name="turnAngleOut"></param>
 /// <param name="dataN"></param>
 /// <param name="turnAngle"></param>
+/// <param name="frame_num"></param>
 /// <param name="sampling_stride"></param>
 /// <param name="window_head"></param>
 /// <param name="window_len"></param>
 /// <returns></returns>
-int uniformSampling(vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnAngleOut, \
-	const vec2D_DBL& dataN, const vec1D_FLT& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len);
+int uniformSampling(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, \
+	const vec1D_DBL& dataN, const vec1D_FLT& turnAngle, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len);
 
 
 //function [flag_data_end DataW_FileSn DataNOut TurnAngleOut] = NonUniformitySampling(DataN, RadarParameters, TurnAngle, start, M)
@@ -631,7 +633,7 @@ public:
 	/// <param name="frame_len"></param>
 	/// <param name="frame_num"></param>
 	/// <returns></returns>
-	int readKuIFDSAllNB(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
+	int readKuIFDSAllNB(vec1D_DBL* dataN, vec1D_FLT* turnAngle, \
 		const RadarParameters& paras, const int& frame_len, const int& frame_num);
 
 	/// <summary>

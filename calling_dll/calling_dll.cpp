@@ -1,6 +1,6 @@
 #include "isar_imaging_export.h"
 
-// duplicate from common.cuh
+// Duplicate from common.cuh
 enum DATA_TYPE
 {
     DEFAULT = 0,	// 
@@ -13,8 +13,6 @@ enum POLAR_TYPE
     LHP = 0,	// left-hand polarization
     RHP = 1	    // right-hand polarization
 };
-
-int writeFile(const std::string& outFilePath, const float* data, const  size_t& data_size);
 
 int main()
 {
@@ -34,13 +32,13 @@ int main()
     bool if_mtrc = true;
 
     // * Data declaration
-    vec2D_DBL dataN;
+    vec1D_DBL dataN;
     vec1D_FLT turnAngle;
     int frame_len = 0;
     int frame_num = 0;
 
     vec1D_INT dataWFileSn;
-    vec2D_DBL dataNOut;
+    vec1D_DBL dataNOut;
     vec1D_FLT turnAngleOut;
     vec1D_COM_FLT dataW;
     vec1D_FLT img;
@@ -53,16 +51,7 @@ int main()
     dataParsing(&dataN, &turnAngle, &frame_len, &frame_num, dir_path, polar_type, data_type);
 
     // * Data initialization
-    switch (data_type) {
-    case DATA_TYPE::IFDS:
-        imagingMemInitIFDS(&img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len);
-        break;
-    case DATA_TYPE::STRETCH:
-        imagingMemInit(&img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len);
-        break;
-    default:
-        break;
-    }
+    imagingMemInit(&img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len, data_type);
 
     const std::complex<float>* h_data = dataW.data();
     float* h_img = img.data();
@@ -78,12 +67,13 @@ int main()
         auto t_imaging_1 = std::chrono::high_resolution_clock::now();
         
         // Data extracting
-        dataExtracting(&dataWFileSn, &dataNOut, &turnAngleOut, &dataW, dataN, frame_len, turnAngle, sampling_stride, window_head, window_len);
+        dataExtracting(&dataWFileSn, &dataNOut, &turnAngleOut, &dataW, dataN, turnAngle, frame_len, frame_num, sampling_stride, window_head, window_len);
 
         // Single ISAR imaging process
         isarMainSingle(h_img, data_type, h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
 
-        //writeFile(dir_path + "\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), h_img, window_len * 512);
+        // Write h_img data into file
+        //writeFileFLT(dir_path + "\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), h_img, window_len * 512);
         
         window_head += imaging_stride;
 
@@ -95,20 +85,4 @@ int main()
     imagingMemDest();
 
     return 0;
-}
-
-int writeFile(const std::string& outFilePath, const float* data, const  size_t& data_size)
-{
-    std::ofstream ofs(outFilePath);
-    if (!ofs.is_open()) {
-        std::cout << "[writeFile/WARN] Cannot open the file: " << outFilePath << std::endl;
-        return EXIT_FAILURE;
-    }
-
-    for (int idx = 0; idx < data_size; idx++) {
-        ofs << std::fixed << std::setprecision(5) << data[idx] << "\n";
-    }
-
-    ofs.close();
-    return EXIT_SUCCESS;
 }

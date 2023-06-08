@@ -28,7 +28,7 @@ int gpuDevInit()
 }
 
 
-int dataParsing(vec2D_DBL* dataN, vec1D_FLT* turnAngle, int* frame_len, int* frame_num, \
+int dataParsing(vec1D_DBL* dataN, vec1D_FLT* turnAngle, int* frame_len, int* frame_num, \
     const std::string& dir_path, const int& polar_type, const int& data_type)
 {
 #ifdef SEPARATE_TIMEING_
@@ -53,8 +53,8 @@ int dataParsing(vec2D_DBL* dataN, vec1D_FLT* turnAngle, int* frame_len, int* fra
 }
 
 
-int dataExtracting(vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
-    const vec2D_DBL& dataN, const int frame_len, const vec1D_FLT& turnAngle, const int& sampling_stride, const int& window_head, const int& window_len)
+int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
+    const vec1D_DBL& dataN, const vec1D_FLT& turnAngle, const int& frame_len, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len)
 {
 #ifdef SEPARATE_TIMEING_
     std::cout << "---* Starting Data Extracting *---\n";
@@ -63,7 +63,7 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnA
 
     bool uni_sampling = true;
     if (uni_sampling == true) {
-        uniformSampling(dataWFileSn, dataNOut, turnAngleOut, dataN, turnAngle, sampling_stride, window_head, window_len);
+        uniformSampling(dataWFileSn, dataNOut, turnAngleOut, dataN, turnAngle, frame_num, sampling_stride, window_head, window_len);
     }
     else {
         nonUniformSampling();
@@ -88,8 +88,8 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnA
 }
 
 
-void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
-    const int& window_len, const int& frame_len)
+void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
+    const int& window_len, const int& frame_len, const int& data_type)
 {
 #ifdef SEPARATE_TIMEING_
     std::cout << "---* Starting GPU Memory Initialization *---\n";
@@ -97,8 +97,18 @@ void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOu
 #endif // SEPARATE_TIMEING_
 
     paras.echo_num = window_len;
-    paras.range_num = (frame_len - 256) / 4;
+    switch (static_cast<DATA_TYPE>(data_type)) {
+    case DATA_TYPE::IFDS:
+        paras.range_num = RANGE_NUM_IFDS_PC;
+        break;
+    case DATA_TYPE::STRETCH:
+        paras.range_num = (frame_len - 256) / 4;
+        break;
+    default:
+        break;
+    }
     paras.data_num = paras.echo_num * paras.range_num;
+    
     if (paras.echo_num > MAX_THREAD_PER_BLOCK) {
         std::cout << "[main/WARN] echo_num > MAX_THREAD_PER_BLOCK: " << MAX_THREAD_PER_BLOCK << ", please double-check the data, then reconfiguring the parameters." << std::endl;
         return;
@@ -114,7 +124,7 @@ void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOu
 
     h_img->resize(paras.echo_num * RANGE_NUM_CUT);
     dataWFileSn->resize(paras.echo_num);
-    dataNOut->resize(paras.echo_num);
+    dataNOut->resize(paras.echo_num * 4);
     turnAngleOut->resize(paras.echo_num);
     dataW->resize(paras.data_num);
     
@@ -137,21 +147,16 @@ void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOu
 }
 
 
-void imagingMemInitIFDS(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
-    const int& window_len, const int& frame_len)
+void isarMainSingle(float* h_img, \
+    const int& data_type, const std::complex<float>* h_data, const vec1D_DBL& dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
 {
-    paras.echo_num = window_len;
-
-    dataWFileSn->resize(paras.echo_num);
-    dataNOut->resize(paras.echo_num);
-    turnAngleOut->resize(paras.echo_num);
+    ISAR_RD_Imaging_Main_Ku(h_img, d_data, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, static_cast<DATA_TYPE>(data_type), h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
 }
 
 
-void isarMainSingle(float* h_img, \
-    const int& data_type, const std::complex<float>* h_data, const vec2D_DBL& dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
+void writeFileFLT(const std::string& outFilePath, const float* data, const  size_t& data_size)
 {
-    ISAR_RD_Imaging_Main_Ku(h_img, d_data, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, static_cast<DATA_TYPE>(data_type), h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
+    ioOperation::writeFile(outFilePath, data, data_size);
 }
 
 
