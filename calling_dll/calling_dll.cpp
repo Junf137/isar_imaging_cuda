@@ -43,7 +43,7 @@ int main()
     vec2D_DBL dataNOut;
     vec1D_FLT turnAngleOut;
     vec1D_COM_FLT dataW;
-    float* h_img = nullptr;
+    vec1D_FLT img;
 
     // * GPU device initialization
     gpuDevInit();
@@ -53,10 +53,19 @@ int main()
     dataParsing(&dataN, &turnAngle, &frame_len, &frame_num, dir_path, polar_type, data_type);
 
     // * Data initialization
-    if (data_type == DATA_TYPE::STRETCH) {
-        imagingMemInit(&h_img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len);
+    switch (data_type) {
+    case DATA_TYPE::IFDS:
+        imagingMemInitIFDS(&img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len);
+        break;
+    case DATA_TYPE::STRETCH:
+        imagingMemInit(&img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len);
+        break;
+    default:
+        break;
     }
+
     const std::complex<float>* h_data = dataW.data();
+    float* h_img = img.data();
 
     // * Sequential imaging process
     for (int i = 0; i < 10; ++i) {
@@ -83,7 +92,7 @@ int main()
     }
 
     // * Free allocated memory
-    imagingMemDest(&h_img);
+    imagingMemDest();
 
     return 0;
 }

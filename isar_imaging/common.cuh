@@ -638,26 +638,22 @@ public:
 	/// 
 	/// </summary>
 	/// <param name="dataW"></param>
-	/// <param name="frameHeader"></param>
-	/// <param name="stretchIndex"></param>
 	/// <param name="frame_len"></param>
 	/// <param name="dataWFileSn"></param>
 	/// <param name="window_len"></param>
 	/// <returns></returns>
-	int getKuData(vec1D_COM_FLT* dataW, vec1D_INT* frameHeader, \
+	int getKuData(vec1D_COM_FLT* dataW, \
 		const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len);
 
 	/// <summary>
 	/// 
 	/// </summary>
 	/// <param name="dataW"></param>
-	/// <param name="frameHeader"></param>
-	/// <param name="stretchIndex"></param>
 	/// <param name="frame_len"></param>
 	/// <param name="dataWFileSn"></param>
 	/// <param name="window_len"></param>
 	/// <returns></returns>
-	int getKuDataStretch(vec1D_COM_FLT* dataW, vec1D_INT* frameHeader, \
+	int getKuDataStretch(vec1D_COM_FLT* dataW, \
 		const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len);
 
 	/// <summary>

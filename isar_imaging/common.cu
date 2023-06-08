@@ -230,13 +230,8 @@ __global__ void expJ(double* x, cuDoubleComplex* res, int len)
 __global__ void genHammingVec(float* d_hamming, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
-	if (tid < (len / 2)) {
-		int tx = tid;
-		d_hamming[tid] = (0.54f - 0.46f * std::cos(2 * PI_FLT * (static_cast<float>(tx) / len - 1)));
-	}
-	else if (tid < len) {
-		int tx = len - tid - 1;
-		d_hamming[tid] = (0.54f - 0.46f * std::cos(2 * PI_FLT * (static_cast<float>(tx) / len - 1)));
+	if (tid < len) {
+		d_hamming[tid] = (0.54f - 0.46f * std::cos(2 * PI_FLT * static_cast<float>(tid) / (len - 1)));
 	}
 }
 
@@ -606,10 +601,10 @@ int uniformSampling(vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turn
 		dataWFileSn->at(i) = window_head + i * sampling_stride;
 	}
 
-	// DataNOut = DataN(window_head:sampling_stride:window_end, : );
+	// extracting dataNout from dataN based on index from dataWFileSn
 	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin(), [&](const int& x) {return dataN[x]; });
 
-	// TurnAngleOut = abs(TurnAngle(window_head:sampling_stride:window_end));
+	// extracting turnANgleOut from turnANgle based on index from dataWFileSn
 	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), turnAngleOut->begin(), [&](const int& x) {return std::abs(turnAngle[x]); });
 
 	return EXIT_SUCCESS;
@@ -677,7 +672,7 @@ int ioOperation::getSystemParas(RadarParameters* paras, int* frame_len, int* fra
 		return EXIT_FAILURE;
 	}
 
-	ifs.seekg(0, ifs.beg);
+	ifs.seekg(0, std::ifstream::beg);
 
 	uint32_t temp[36]{};
 	ifs.read((char*)&temp, sizeof(uint32_t) * 36);  // 144 bytes in total
@@ -721,7 +716,7 @@ int ioOperation::readKuIFDSAllNB(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
 		}
 	}
 
-	int frame_num_total = frame_num * m_file_vec.size();
+	int frame_num_total = frame_num * static_cast<int>(m_file_vec.size());
 
 	dataN->resize(frame_num_total);
 
@@ -772,14 +767,14 @@ int ioOperation::readKuIFDSAllNB(vec2D_DBL* dataN, vec1D_FLT* turnAngle, \
 }
 
 
-int ioOperation::getKuData(vec1D_COM_FLT* dataW, vec1D_INT* frameHeader, \
+int ioOperation::getKuData(vec1D_COM_FLT* dataW, \
 	const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len)
 {
 	return EXIT_SUCCESS;
 }
 
 
-int ioOperation::getKuDataStretch(vec1D_COM_FLT* dataW, vec1D_INT* frameHeader, \
+int ioOperation::getKuDataStretch(vec1D_COM_FLT* dataW, \
 	const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len)
 {
 	std::ifstream ifs;
@@ -789,39 +784,21 @@ int ioOperation::getKuDataStretch(vec1D_COM_FLT* dataW, vec1D_INT* frameHeader, 
 		return EXIT_FAILURE;
 	}
 
-	int dataADTempSize = (frame_len - 256) / 2;
-	int16_t* dataADTemp = new int16_t[dataADTempSize];
+	int dataAD_size = (frame_len - 256) / 2;
+	int16_t* dataAD = new int16_t[dataAD_size];
 	
 	for (int i = 0; i < window_len; ++i) {
-		ifs.seekg(dataWFileSn[i] * frame_len + 256, ifs.beg);
+		ifs.seekg(dataWFileSn[i] * frame_len + 256, std::ifstream::beg);
 
-		ifs.read((char*)dataADTemp, dataADTempSize * sizeof(int16_t));
+		ifs.read((char*)dataAD, dataAD_size * sizeof(int16_t));
 
-		for (int j = 0; (j + 1) < dataADTempSize; j += 2) {
-			dataW->at(i * (dataADTempSize / 2) + (j / 2)) = std::complex<float>(static_cast<float>(dataADTemp[j]), static_cast<float>(dataADTemp[j + 1]));
+		for (int j = 0; (j + 1) < dataAD_size; j += 2) {
+			dataW->at(i * (dataAD_size / 2) + (j / 2)) = std::complex<float>(static_cast<float>(dataAD[j]), static_cast<float>(dataAD[j + 1]));
 		}
 	}
-	delete[] dataADTemp;
-	dataADTemp = nullptr;
 
-	/*
-	fseek(fid1, StretchIndex(DataW_FileSn(1), 1) - 256, 'bof');
-	DataRead = fread(fid1, 108, 'uint8');
-	FrameHeader = [DataRead(1:12, 1); DataRead(101:104, 1); DataRead(77:92, 1); DataRead(97:100, 1); DataRead(33:38, 1); DataRead(31, 1); DataRead(105:108, 1); DataRead(61:64, 1); ];
-	*/
-	//ifs.seekg(dataWFileSn[0] * frame_len, ifs.beg);
-
-	//uint8_t frameHeaderTemp[108]{};
-	//ifs.read((char*)&frameHeaderTemp, sizeof(frameHeaderTemp));
-
-	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 0, frameHeaderTemp + 12);
-	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 100, frameHeaderTemp + 104);
-	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 76, frameHeaderTemp + 92);
-	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 96, frameHeaderTemp + 100);
-	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 32, frameHeaderTemp + 38);
-	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 30, frameHeaderTemp + 31);
-	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 104, frameHeaderTemp + 108);
-	//frameHeader->insert(frameHeader->cend(), frameHeaderTemp + 60, frameHeaderTemp + 64);
+	delete[] dataAD;
+	dataAD = nullptr;
 
 	ifs.close();
 

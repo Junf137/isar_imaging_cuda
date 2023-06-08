@@ -27,10 +27,12 @@
     <ClInclude Include="isar_main.cuh" />
     <ClInclude Include="mtrc.cuh" />
     <ClInclude Include="phase_adjustment.cuh" />
+    <ClInclude Include="pulse_compression.cuh" />
     <ClInclude Include="range_alignment.cuh" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="isar_imaging_export.cpp" />
+    <ClCompile Include="pulse_compression.cu" />
   </ItemGroup>
   <ItemGroup>
     <None Include="cpp.hint" />

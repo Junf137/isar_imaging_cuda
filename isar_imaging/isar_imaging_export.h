@@ -83,7 +83,22 @@ extern "C" DLL_EXPORT_API int dataExtracting(vec1D_INT * dataWFileSn, vec2D_DBL 
 /// <param name="window_len"></param>
 /// <param name="frame_len"></param>
 /// <returns></returns>
-extern "C" DLL_EXPORT_API void imagingMemInit(float** h_img, vec1D_INT * dataWFileSn, vec2D_DBL * dataNOut, vec1D_FLT * turnAngleOut, vec1D_COM_FLT * dataW, \
+extern "C" DLL_EXPORT_API void imagingMemInit(vec1D_FLT * h_img, vec1D_INT * dataWFileSn, vec2D_DBL * dataNOut, vec1D_FLT * turnAngleOut, vec1D_COM_FLT * dataW, \
+	const int& window_len, const int& frame_len);
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="h_img"></param>
+/// <param name="dataWFileSn"></param>
+/// <param name="dataNOut"></param>
+/// <param name="turnAngleOut"></param>
+/// <param name="dataW"></param>
+/// <param name="window_len"></param>
+/// <param name="frame_len"></param>
+/// <returns></returns>
+extern "C" DLL_EXPORT_API void imagingMemInitIFDS(vec1D_FLT * h_img, vec1D_INT * dataWFileSn, vec2D_DBL * dataNOut, vec1D_FLT * turnAngleOut, vec1D_COM_FLT * dataW, \
 	const int& window_len, const int& frame_len);
 
 
@@ -108,9 +123,8 @@ extern "C" DLL_EXPORT_API void isarMainSingle(float* h_img, \
 /// Free allocated memory in CPU and GPU.
 /// Destroy pointer.
 /// </summary>
-/// <param name="h_img"></param>
 /// <returns></returns>
-extern "C" DLL_EXPORT_API void imagingMemDest(float** h_img);
+extern "C" DLL_EXPORT_API void imagingMemDest();
 
 
 /******************

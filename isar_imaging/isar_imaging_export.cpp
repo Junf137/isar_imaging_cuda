@@ -69,10 +69,10 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnA
         nonUniformSampling();
     }
 
-    vec1D_INT frameHeader;
-    io.getKuDataStretch(dataW, &frameHeader, frame_len, *dataWFileSn, window_len);
+    io.getKuDataStretch(dataW, frame_len, *dataWFileSn, window_len);
 
-    // manually set range_num and data_num back to original values
+    // range_num will be set to RANGE_NUM_CUT after cut range profile in imaging process
+    // thus, manually set range_num and data_num back to original values while extracting new data
     paras.echo_num = window_len;
     paras.range_num = (frame_len - 256) / 4;
     paras.data_num = paras.echo_num * paras.range_num;
@@ -88,7 +88,7 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnA
 }
 
 
-void imagingMemInit(float** h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
+void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
     const int& window_len, const int& frame_len)
 {
 #ifdef SEPARATE_TIMEING_
@@ -112,13 +112,13 @@ void imagingMemInit(float** h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, 
         return;
     }
 
+    h_img->resize(paras.echo_num * RANGE_NUM_CUT);
     dataWFileSn->resize(paras.echo_num);
     dataNOut->resize(paras.echo_num);
     turnAngleOut->resize(paras.echo_num);
     dataW->resize(paras.data_num);
     
     handles.handleInit(paras.echo_num, paras.range_num);
-    *h_img = new float[paras.echo_num * RANGE_NUM_CUT];
 
     checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * paras.data_num));
     checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * RANGE_NUM_CUT));
@@ -137,6 +137,17 @@ void imagingMemInit(float** h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, 
 }
 
 
+void imagingMemInitIFDS(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec2D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
+    const int& window_len, const int& frame_len)
+{
+    paras.echo_num = window_len;
+
+    dataWFileSn->resize(paras.echo_num);
+    dataNOut->resize(paras.echo_num);
+    turnAngleOut->resize(paras.echo_num);
+}
+
+
 void isarMainSingle(float* h_img, \
     const int& data_type, const std::complex<float>* h_data, const vec2D_DBL& dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
 {
@@ -144,12 +155,12 @@ void isarMainSingle(float* h_img, \
 }
 
 
-void imagingMemDest(float** h_img)
+void imagingMemDest()
 {
+    // free cuFFT handle
     handles.handleDest();
-    delete *h_img;
-    *h_img = nullptr;
 
+    // free allocated memory using cudaMalloc
     checkCudaErrors(cudaFree(d_data));
     checkCudaErrors(cudaFree(d_data_cut));
     checkCudaErrors(cudaFree(d_velocity));
