@@ -54,7 +54,7 @@ int dataParsing(vec1D_DBL* dataN, vec1D_FLT* turnAngle, int* frame_len, int* fra
 
 
 int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
-    const vec1D_DBL& dataN, const vec1D_FLT& turnAngle, const int& frame_len, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len)
+    const vec1D_DBL& dataN, const vec1D_FLT& turnAngle, const int& frame_len, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len, const int& data_type)
 {
 #ifdef SEPARATE_TIMEING_
     std::cout << "---* Starting Data Extracting *---\n";
@@ -69,13 +69,7 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnA
         nonUniformSampling();
     }
 
-    io.getKuDataStretch(dataW, frame_len, *dataWFileSn, window_len);
-
-    // range_num will be set to RANGE_NUM_CUT after cut range profile in imaging process
-    // thus, manually set range_num and data_num back to original values while extracting new data
-    paras.echo_num = window_len;
-    paras.range_num = (frame_len - 256) / 4;
-    paras.data_num = paras.echo_num * paras.range_num;
+    io.getSignalData(dataW, paras, *dataNOut, frame_len, frame_num, *dataWFileSn, window_len);
 
 #ifdef SEPARATE_TIMEING_
     auto t_data_extract_2 = std::chrono::high_resolution_clock::now();
@@ -107,14 +101,16 @@ void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOu
     default:
         break;
     }
+    paras.range_num_cut = RANGE_NUM_CUT;
     paras.data_num = paras.echo_num * paras.range_num;
+    paras.data_num_cut = paras.echo_num * paras.range_num_cut;
     
     if (paras.echo_num > MAX_THREAD_PER_BLOCK) {
         std::cout << "[main/WARN] echo_num > MAX_THREAD_PER_BLOCK: " << MAX_THREAD_PER_BLOCK << ", please double-check the data, then reconfiguring the parameters." << std::endl;
         return;
     }
-    if (paras.range_num < RANGE_NUM_CUT) {
-        std::cout << "[main/WARN] range_num < RANGE_NUM_CUT: " << RANGE_NUM_CUT << ", please double-check the data or optimize process of cutRangeProfile()." << std::endl;
+    if (paras.range_num < paras.range_num_cut) {
+        std::cout << "[main/WARN] range_num < paras.range_num_cut: " << paras.range_num_cut << ", please double-check the data or optimize process of cutRangeProfile()." << std::endl;
         return;
 }
     if (paras.range_num < paras.echo_num) {
@@ -122,7 +118,7 @@ void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOu
         return;
     }
 
-    h_img->resize(paras.echo_num * RANGE_NUM_CUT);
+    h_img->resize(paras.echo_num * paras.range_num_cut);
     dataWFileSn->resize(paras.echo_num);
     dataNOut->resize(paras.echo_num * 4);
     turnAngleOut->resize(paras.echo_num);
@@ -131,12 +127,12 @@ void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOu
     handles.handleInit(paras.echo_num, paras.range_num);
 
     checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * paras.data_num));
-    checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * RANGE_NUM_CUT));
+    checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * paras.range_num_cut));
     checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
     checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
     checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
     checkCudaErrors(cudaMalloc((void**)&d_hamming_echoes, sizeof(float) * paras.echo_num));
-    checkCudaErrors(cudaMalloc((void**)&d_img, sizeof(float) * paras.echo_num * RANGE_NUM_CUT));
+    checkCudaErrors(cudaMalloc((void**)&d_img, sizeof(float) * paras.echo_num * paras.range_num_cut));
 
 #ifdef SEPARATE_TIMEING_
     auto t_init_gpu_2 = std::chrono::high_resolution_clock::now();

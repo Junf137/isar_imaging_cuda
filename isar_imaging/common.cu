@@ -403,40 +403,29 @@ __global__ void sumRows(float* d_data, float* d_sum_rows, int rows, int cols)
 }
 
 
-void cutRangeProfile(cuComplex* d_data_cut, cuComplex* d_data, RadarParameters& paras, const int& range_num_cut, const CUDAHandle& handles)
+void cutRangeProfile(cuComplex* d_data, cuComplex* d_data_cut, \
+	const int& cols, const int& cols_cut, const int& data_num_cut, const cublasHandle_t& handle)
 {
-	int data_num_cut = paras.echo_num * range_num_cut;
-
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
-	dim3 grid((data_num_cut + block.x - 1) / block.x);  // grid size
 
-	// max(abs(d_data(1,:)))
+	// find the index of the maximum value in the first echo
 	int range_abs_max_idx = 0;
 	cuComplex range_abs_max_val = make_cuComplex(0.0f, 0.0f);
-	getMax(handles.handle, d_data, paras.range_num, &range_abs_max_idx, &range_abs_max_val);
+	getMax(handle, d_data, cols, &range_abs_max_idx, &range_abs_max_val);
 
-	int offset_l = range_abs_max_idx - range_num_cut / 2;
-	int offset_r = range_abs_max_idx + range_num_cut / 2;
-	if (offset_l < 0 || offset_r >= paras.range_num) {
-		std::cout << "[cutRangeProfile/WARN] Invalid range_num_cut! Probably too long.\n" << std::endl;
-		system("pause");
-		exit(EXIT_FAILURE);
-	}
+	int offset = MAX(range_abs_max_idx - cols_cut / 2, 0);
+	offset = MIN(offset, cols - cols_cut);
 
-	cutRangeProfileHelper << <grid, block >> > (d_data, d_data_cut, data_num_cut, offset_l, range_num_cut, paras.range_num);
+	cutRangeProfileHelper << <(data_num_cut + block.x - 1) / block.x, block >> > (d_data, d_data_cut, cols, cols_cut, offset, data_num_cut);
 	checkCudaErrors(cudaDeviceSynchronize());
-
-	// updating values of paras
-	paras.range_num = range_num_cut;
-	paras.data_num = paras.echo_num * paras.range_num;
 }
 
 
-__global__ void cutRangeProfileHelper(cuComplex* d_in, cuComplex* d_out, int data_num_cut, int offset, int range_num_cut, int range_num)
+__global__ void cutRangeProfileHelper(cuComplex* d_in, cuComplex* d_out, int cols, int cols_cut, int offset, int data_num_cut)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 	if (tid < data_num_cut) {
-		d_out[tid] = d_in[(tid / range_num_cut) * range_num + offset + tid % range_num_cut];
+		d_out[tid] = d_in[(tid / cols_cut) * cols + offset + (tid % cols_cut)];
 	}
 }
 
@@ -619,6 +608,150 @@ int nonUniformSampling() {
 }
 
 
+/// <summary>
+/// 
+/// </summary>
+/// <param name="d_tk"></param>
+/// <param name="Tp"></param>
+/// <param name="constant"> 1 - 2 * velocity / c </param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void genTkPulseCompression(float* d_tk, float Tp, float constant, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (tid < len) {
+		d_tk[tid] = constant * (Tp / -2.0f + static_cast<float>(tid) * Tp / (static_cast<float>(len) - 1.0f));
+	}
+}
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="d_ref"></param>
+/// <param name="d_tk"></param>
+/// <param name="d_hamming"></param>
+/// <param name="constant_1"> -2 * PI_FLT * F0 * v2 / _v2 </param>
+/// <param name="constant_2"> PI_FLT * Band / Taup </param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void genRefPulseCompression(cuComplex* d_ref, float* d_tk, float* d_hamming, float constant_1, float constant_2, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (tid < len) {
+		//temp2 = -2 * 3.14159265 * F0 * v2 * (*(t + i)) / temp + 3.14159265 * Band / Taup * pow(*(t + i), 2);  //3.14159265
+		float tmp = constant_1 * d_tk[tid] + constant_2 * d_tk[tid] * d_tk[tid];
+		d_ref[tid] = make_cuComplex(d_hamming[tid] * std::cos(tmp), d_hamming[tid] * std::sin(tmp));
+	}
+}
+
+
+// [todo] remove this function
+void dDataDisp(cuComplex* d_data, int rows, int cols)
+{
+	std::complex<float>* h_data = new std::complex<float>[rows * cols];
+	checkCudaErrors(cudaMemcpy(h_data, d_data, sizeof(std::complex<float>) * rows * cols, cudaMemcpyDeviceToHost));
+	for (int i = 0; i < rows; ++i) {
+		for (int j = 0; j < cols; ++j) {
+			std::cout << h_data[i * cols + j] << " ";
+		}
+		std::cout << std::endl;
+	}
+	std::cout << std::endl;
+	delete[] h_data;
+}
+
+
+/* pulseCompression Class */
+pulseCompression::pulseCompression(const int& NFFT, const int& dataIQ_len, const int& range_num_ifds_pc, const RadarParameters& paras)
+{
+	m_NFFT = NFFT;
+	m_dataIQ_len = dataIQ_len;
+	m_range_num_ifds_pc = range_num_ifds_pc;
+	m_paras = paras;
+
+	int sampling_num = static_cast<int>(m_paras.Fs * m_paras.Tp);
+
+	// Initializing cuda handle
+	checkCudaErrors(cublasCreate(&handle));
+	checkCudaErrors(cufftPlan1d(&plan_pc_echo_c2c, m_NFFT, CUFFT_C2C, 1));
+
+	// Allocate memory in device
+	checkCudaErrors(cudaMalloc((void**)&d_dataIQ, sizeof(cuComplex) * m_NFFT));
+	checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * sampling_num));
+	checkCudaErrors(cudaMalloc((void**)&d_tk, sizeof(float) * sampling_num));
+	checkCudaErrors(cudaMalloc((void**)&d_ref, sizeof(cuComplex) * m_NFFT));
+}
+
+
+pulseCompression::~pulseCompression()
+{
+	// Free cuda handle
+	checkCudaErrors(cublasDestroy(handle));
+	checkCudaErrors(cufftDestroy(plan_pc_echo_c2c));
+
+	// Free allocated memory in device
+	checkCudaErrors(cudaFree(d_dataIQ));
+	checkCudaErrors(cudaFree(d_hamming));
+	checkCudaErrors(cudaFree(d_tk));
+	checkCudaErrors(cudaFree(d_ref));
+}
+
+
+void pulseCompression::pulseCompressionbyFFT(std::complex<float>* h_dataW_echo, \
+	const std::complex<float>* h_dataIQ_echo, const double velocity_echo)
+{
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);
+
+	// h_dataIQ_echo(host to device)
+	checkCudaErrors(cudaMemcpy(d_dataIQ, h_dataIQ_echo, sizeof(cuComplex) * m_dataIQ_len, cudaMemcpyHostToDevice));
+
+	// [todo] reference signal reuse
+	// Generating reference signal
+	int sampling_num = static_cast<int>(m_paras.Fs * m_paras.Tp);
+	float v2 = 2 * static_cast<float>(velocity_echo) / LIGHT_SPEED;
+	float _v2 = 1 - v2;
+	float constant_1 = static_cast<float>(-2 * PI_FLT * m_paras.fc * v2 / _v2);
+	float constant_2 = static_cast<float>(PI_FLT * m_paras.band_width / m_paras.Tp);
+	float scale_ifft = 1.0f / m_NFFT;
+
+	genHammingVec << <dim3((sampling_num + block.x - 1) / block.x), block >> > (d_hamming, sampling_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	genTkPulseCompression << <dim3((sampling_num + block.x - 1) / block.x), block >> > (d_tk, static_cast<float>(m_paras.Tp), _v2, sampling_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	genRefPulseCompression << <dim3((sampling_num + block.x - 1) / block.x), block >> > (d_ref, d_tk, d_hamming, constant_1, constant_2, sampling_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// FFT(signal and reference)
+	checkCudaErrors(cufftExecC2C(plan_pc_echo_c2c, d_dataIQ, d_dataIQ, CUFFT_FORWARD));
+	checkCudaErrors(cufftExecC2C(plan_pc_echo_c2c, d_ref, d_ref, CUFFT_FORWARD));
+
+	// Conjunction multiply
+	elementwiseMultiplyConjA << <dim3((m_NFFT + block.x - 1) / block.x), block >> > (d_ref, d_dataIQ, d_dataIQ, m_NFFT);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// IFFT(signal)
+	checkCudaErrors(cufftExecC2C(plan_pc_echo_c2c, d_dataIQ, d_dataIQ, CUFFT_INVERSE));
+	checkCudaErrors(cublasCsscal(handle, m_NFFT, &scale_ifft, d_dataIQ, 1));
+
+	// print d_data
+	//dDataDisp(d_dataIQ, 10, 100);
+
+	// Cut range profile
+	cuComplex* d_dataW_echo = nullptr;
+	checkCudaErrors(cudaMalloc((void**)&d_dataW_echo, sizeof(cuComplex) * m_range_num_ifds_pc));
+
+	cutRangeProfile(d_dataIQ, d_dataW_echo, m_NFFT, m_range_num_ifds_pc, m_range_num_ifds_pc, handle);
+
+	// d_dataW_echo(device to host)
+	checkCudaErrors(cudaMemcpy(h_dataW_echo, d_dataW_echo, sizeof(cuComplex) * m_range_num_ifds_pc, cudaMemcpyDeviceToHost));
+}
+
+
 /* ioOperation Class */
 void ioOperation::ioInit(std::string* INTERMEDIATE_DIR, const std::string& dir_path, const POLAR_TYPE& polar_type, const DATA_TYPE& data_type)
 {
@@ -676,7 +809,6 @@ int ioOperation::getSystemParas(RadarParameters* paras, int* frame_len, int* fra
 	}
 
 	ifs.seekg(0, std::ifstream::beg);
-
 	uint32_t temp[36]{};
 	ifs.read((char*)&temp, sizeof(uint32_t) * 36);  // 144 bytes in total
 
@@ -739,7 +871,6 @@ int ioOperation::readKuIFDSAllNB(vec1D_DBL* dataN, vec1D_FLT* turnAngle, \
 		file_idx = i / frame_num;
 
 		ifs_vec[file_idx].seekg((i - file_idx * frame_num) * frame_len + 48, std::ifstream::beg);
-
 		ifs_vec[file_idx].read((char*)&headerData, sizeof(uint32_t) * 11);
 
 		range = static_cast<double>(headerData[7]) * 0.1;
@@ -774,40 +905,94 @@ int ioOperation::readKuIFDSAllNB(vec1D_DBL* dataN, vec1D_FLT* turnAngle, \
 }
 
 
-int ioOperation::getKuData(vec1D_COM_FLT* dataW, \
-	const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len)
+int ioOperation::getSignalData(vec1D_COM_FLT* dataW, \
+	const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const vec1D_INT& dataWFileSn, const int& window_len)
 {
-	return EXIT_SUCCESS;
-}
-
-
-int ioOperation::getKuDataStretch(vec1D_COM_FLT* dataW, \
-	const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len)
-{
-	std::ifstream ifs;
-	ifs.open(m_file_vec[0], std::ios_base::in | std::ios_base::binary);
-	if (!ifs) {
-		std::cout << "[getKuDataStretch/WARN] Cannot open file " << m_file_vec[0] << " !\n";
-		return EXIT_FAILURE;
+	std::vector<std::ifstream> ifs_vec(m_file_vec.size());
+	for (int i = 0; i < m_file_vec.size(); ++i) {
+		ifs_vec[i].open(m_file_vec[i], std::ios_base::in | std::ios_base::binary);
+		if (!ifs_vec[i]) {
+			std::cout << "[readKuIFDSALLNBStretch/WARN] Cannot open file " << m_file_vec[i] << " !\n";
+			return EXIT_FAILURE;
+		}
 	}
+
+	int frame_num_total = frame_num * static_cast<int>(m_file_vec.size());
 
 	int dataAD_size = (frame_len - 256) / 2;
 	int16_t* dataAD = new int16_t[dataAD_size];
-	
-	for (int i = 0; i < window_len; ++i) {
-		ifs.seekg(dataWFileSn[i] * frame_len + 256, std::ifstream::beg);
 
-		ifs.read((char*)dataAD, dataAD_size * sizeof(int16_t));
+	int file_idx = 0;  // file need to read
 
-		for (int j = 0; (j + 1) < dataAD_size; j += 2) {
-			dataW->at(i * (dataAD_size / 2) + (j / 2)) = std::complex<float>(static_cast<float>(dataAD[j]), static_cast<float>(dataAD[j + 1]));
+	switch (m_data_type) {
+	case DATA_TYPE::IFDS: {
+		// In IFDS mode, read each pulse data and write it to dataIQ before pulse compression operation.
+		int dataIQ_size = dataAD_size / 2;
+		std::complex<float>* dataIQ = new std::complex<float>[dataIQ_size];
+		
+		// Initializing object of pulse compression for a single thread.
+		pulseCompression pc(nextPow2(dataIQ_size), dataIQ_size, RANGE_NUM_IFDS_PC, paras);
+
+		for (int i = 0; i < window_len; ++i) {
+			file_idx = dataWFileSn[i] / frame_num;
+
+			// Read data
+			auto t_data_1 = std::chrono::high_resolution_clock::now();
+			ifs_vec[file_idx].seekg((dataWFileSn[i] - file_idx * frame_num) * frame_len + 256, std::ifstream::beg);
+			ifs_vec[file_idx].read((char*)dataAD, dataAD_size * sizeof(int16_t));
+
+			auto t_data_2 = std::chrono::high_resolution_clock::now();
+			
+			for (int j = 0; (j + 1) < dataAD_size; j += 2) {
+				dataIQ[j / 2] = std::complex<float>(static_cast<float>(dataAD[j]), static_cast<float>(dataAD[j + 1]));
+			}
+			auto t_data_3 = std::chrono::high_resolution_clock::now();
+
+			// Pulse compression
+			auto t_pc_1 = std::chrono::high_resolution_clock::now();
+			pc.pulseCompressionbyFFT(dataW->data() + i * RANGE_NUM_IFDS_PC, dataIQ, dataNOut[frame_num + dataWFileSn[i]]);
+			auto t_pc_2 = std::chrono::high_resolution_clock::now();
+
+			std::cout << "[Pulse index] " << i + 1 << "\n";
+			std::cout << "Read data time: " << std::chrono::duration_cast<std::chrono::milliseconds>(t_data_2 - t_data_1).count() << " ms" << std::endl;
+			std::cout << "Reconstruct data time: " << std::chrono::duration_cast<std::chrono::milliseconds>(t_data_3 - t_data_2).count() << " ms" << std::endl;
+			std::cout << "Pulse compression time: " << std::chrono::duration_cast<std::chrono::milliseconds>(t_pc_2 - t_pc_1).count() << " ms" << std::endl;
 		}
+		delete[] dataIQ;
+		dataIQ = nullptr;
+
+		// pause for debug
+		std::cout << "Press any key to continue..." << std::endl;
+		getchar();
+
+		break;
+	}
+	case DATA_TYPE::STRETCH: {
+		// In STERTCH mode, read all pulse data and write it to dataW for imaging process
+		for (int i = 0; i < window_len; ++i) {
+			file_idx = dataWFileSn[i] / frame_num;
+
+			ifs_vec[file_idx].seekg((dataWFileSn[i] - file_idx * frame_num) * frame_len + 256, std::ifstream::beg);
+			ifs_vec[file_idx].read((char*)dataAD, dataAD_size * sizeof(int16_t));
+
+			for (int j = 0; (j + 1) < dataAD_size; j += 2) {
+				dataW->at(i * (dataAD_size / 2) + (j / 2)) = std::complex<float>(static_cast<float>(dataAD[j]), static_cast<float>(dataAD[j + 1]));
+			}
+		}
+
+		break;
+	}
+	default:
+		break;
 	}
 
 	delete[] dataAD;
 	dataAD = nullptr;
 
-	ifs.close();
+
+	for (int i = 0; i < m_file_vec.size(); ++i) {
+		ifs_vec[i].close();
+	}
 
 	return EXIT_SUCCESS;
 }

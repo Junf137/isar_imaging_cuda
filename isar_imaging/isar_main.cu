@@ -1,7 +1,7 @@
 ﻿#include "isar_main.cuh"
 
-int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_cut, double* d_velocity, float* d_hamming, cuComplex* d_hrrp, float* d_hamming_echoes, float* d_img, RadarParameters& paras, \
-	const CUDAHandle& handles, const DATA_TYPE& data_type, const std::complex<float>* h_data, const vec1D_DBL& dataNOut, \
+int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_cut, double* d_velocity, float* d_hamming, cuComplex* d_hrrp, float* d_hamming_echoes, float* d_img, \
+	const RadarParameters& paras, const CUDAHandle& handles, const DATA_TYPE& data_type, const std::complex<float>* h_data, const vec1D_DBL& dataNOut, \
 	const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
 {
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);
@@ -101,7 +101,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 #endif // DATA_WRITE_BACK_RA
 
 	// * Cutting range profile
-	cutRangeProfile(d_data_cut, d_data, paras, RANGE_NUM_CUT, handles);
+	cutRangeProfile(d_data, d_data_cut, paras.range_num, paras.range_num_cut, paras.data_num_cut, handles.handle);
 
 #ifdef SEPARATE_TIMEING_
 	auto t_ra_3 = std::chrono::high_resolution_clock::now();
@@ -157,7 +157,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	//std::cout << "total time: " << total_time << " us" << std::endl;
 
 	// * Fast Entropy
-	fastEntropy(d_data_cut, paras.echo_num, paras.range_num, handles);
+	fastEntropy(d_data_cut, paras.echo_num, paras.range_num_cut, handles);
 
 #ifdef SEPARATE_TIMEING_
 	auto t_pc_3 = std::chrono::high_resolution_clock::now();
@@ -169,7 +169,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_PC
-	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "pc.dat", d_data_cut, paras.data_num);
+	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "pc.dat", d_data_cut, paras.data_num_cut);
 #endif // DATA_WRITE_BACK_PC
 
 
@@ -195,7 +195,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_MTRC
-	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "mtrc.dat", d_data_cut, paras.data_num);
+	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "mtrc.dat", d_data_cut, paras.data_num_cut);
 #endif // DATA_WRITE_BACK_MTRC
 
 
@@ -212,20 +212,20 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// adding hamming
-	diagMulMat << <(paras.data_num + block.x - 1) / block.x, block >> > (d_hamming_echoes, d_data_cut, d_data_cut, paras.echo_num, paras.range_num);
+	diagMulMat << <(paras.data_num_cut + block.x - 1) / block.x, block >> > (d_hamming_echoes, d_data_cut, d_data_cut, paras.echo_num, paras.range_num_cut);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * Applying fft on each range along the second dimension
 	checkCudaErrors(cufftExecC2C(handles.plan_all_range_c2c, d_data_cut, d_data_cut, CUFFT_FORWARD));
 	// fftshift
-	ifftshiftCols << <dim3(paras.range_num, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_data_cut, paras.echo_num);
+	ifftshiftCols << <dim3(paras.range_num_cut, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_data_cut, paras.echo_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * final img data
-	elementwiseAbs << <(paras.data_num + block.x - 1) / block.x, block >> > (d_data_cut, d_img, paras.data_num);
+	elementwiseAbs << <(paras.data_num_cut + block.x - 1) / block.x, block >> > (d_data_cut, d_img, paras.data_num_cut);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	checkCudaErrors(cudaMemcpy(h_img, d_img, sizeof(float) * paras.data_num, cudaMemcpyDeviceToHost));  // img (device -> host)
+	checkCudaErrors(cudaMemcpy(h_img, d_img, sizeof(float) * paras.data_num_cut, cudaMemcpyDeviceToHost));  // img (device -> host)
 
 #ifdef SEPARATE_TIMEING_
 	auto t_post_processing_2 = std::chrono::high_resolution_clock::now();
@@ -236,7 +236,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_FINAL
-	ioOperation::writeFile(std::string(INTERMEDIATE_DIR) + "final.dat", h_img, paras.data_num);
+	ioOperation::writeFile(std::string(INTERMEDIATE_DIR) + "final.dat", h_img, paras.data_num_cut);
 #endif // DATA_WRITE_BACK_FINAL
 
 

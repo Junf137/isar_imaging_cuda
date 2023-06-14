@@ -95,7 +95,9 @@ struct RadarParameters
 {
 	int echo_num;
 	int range_num;
+	int range_num_cut;
 	int data_num;
+	int data_num_cut;
 	long long band_width;
 	long long fc;
 	double Tp;
@@ -106,8 +108,8 @@ struct RadarParameters
 
 	bool operator==(const RadarParameters& other) const = default;
 
-	RadarParameters(int echo_num, int range_num, int data_num, long long band_width, long long fc, double Tp, long long Fs)
-		: echo_num(echo_num), range_num(range_num), data_num(data_num), band_width(band_width), fc(fc), Tp(Tp), Fs(Fs)
+	RadarParameters(int echo_num, int range_num, int range_num_cut, int data_num, int data_num_cut, long long band_width, long long fc, double Tp, long long Fs)
+		: echo_num(echo_num), range_num(range_num), range_num_cut(range_num_cut), data_num(data_num), data_num_cut(data_num_cut), band_width(band_width), fc(fc), Tp(Tp), Fs(Fs)
 	{
 	}
 };
@@ -455,12 +457,14 @@ __global__ void sumRows(float* d_data, float* d_sum_rows, int rows, int cols);
 /// <summary>
 /// Cutting range profile along echo dimension
 /// </summary>
-/// <param name="d_data_cut"></param>
 /// <param name="d_data"></param>
-/// <param name="paras"></param>
-/// <param name="range_num_cut"></param>
-/// <param name="handles"></param>
-void cutRangeProfile(cuComplex* d_data_cut, cuComplex* d_data, RadarParameters& paras, const int& range_num_cut, const CUDAHandle& handles);
+/// <param name="d_data_cut"></param>
+/// <param name="cols"></param>
+/// <param name="cols_cut"></param>
+/// <param name="data_num_cut"></param>
+/// <param name="handle"></param>
+void cutRangeProfile(cuComplex* d_data, cuComplex* d_data_cut, \
+	const int& cols, const int& cols_cut, const int& data_num_cut, const cublasHandle_t& handle);
 
 
 /// <summary>
@@ -563,6 +567,58 @@ int uniformSampling(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turn
 int nonUniformSampling();
 
 
+/* pulseCompression Class */
+class pulseCompression
+{
+private:
+	int m_NFFT;
+	int m_dataIQ_len;
+	int m_range_num_ifds_pc;
+	RadarParameters m_paras;
+
+	cublasHandle_t handle;
+	cufftHandle plan_pc_echo_c2c;
+
+	cuComplex* d_dataIQ;
+	float* d_hamming;
+	float* d_tk;
+	cuComplex* d_ref;
+
+public:
+
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="NFFT"></param>
+	/// <param name="dataIQ_len"></param>
+	/// <param name="range_num_ifds_pc"></param>
+	/// <param name="paras"></param>
+	pulseCompression(const int& NFFT, const int& dataIQ_len, const int& range_num_ifds_pc, const RadarParameters& paras);
+
+	/// <summary>
+	/// 
+	/// </summary>
+	~pulseCompression();
+
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="other"></param>
+	/// <returns></returns>
+	bool operator==(const pulseCompression& other) const = default;
+
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="h_dataW_echo"></param>
+	/// <param name="h_dataIQ_echo"></param>
+	/// <param name="velocity_echo"></param>
+	void pulseCompressionbyFFT(std::complex<float>* h_dataW_echo, \
+		const std::complex<float>* h_dataIQ_echo, const double velocity_echo);
+};
+
+
+
 /* ioOperation Class */
 /// <summary>
 /// Reading radar signal into CPU memory.
@@ -640,23 +696,15 @@ public:
 	/// 
 	/// </summary>
 	/// <param name="dataW"></param>
+	/// <param name="paras"></param>
+	/// <param name="dataNOut"></param>
 	/// <param name="frame_len"></param>
+	/// <param name="frame_num"></param>
 	/// <param name="dataWFileSn"></param>
 	/// <param name="window_len"></param>
 	/// <returns></returns>
-	int getKuData(vec1D_COM_FLT* dataW, \
-		const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len);
-
-	/// <summary>
-	/// 
-	/// </summary>
-	/// <param name="dataW"></param>
-	/// <param name="frame_len"></param>
-	/// <param name="dataWFileSn"></param>
-	/// <param name="window_len"></param>
-	/// <returns></returns>
-	int getKuDataStretch(vec1D_COM_FLT* dataW, \
-		const int& frame_len, const vec1D_INT& dataWFileSn, const int& window_len);
+	int getSignalData(vec1D_COM_FLT* dataW, \
+		const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const vec1D_INT& dataWFileSn, const int& window_len);
 
 	/// <summary>
 	/// write data reside in CPU memory back to outFilePath
