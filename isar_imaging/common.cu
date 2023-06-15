@@ -347,13 +347,56 @@ __global__ void sumCols(float* d_data, float* d_sum_clos, int rows, int cols)
 }
 
 
+/// <summary>
+/// Getting the max element index of every single row in matrix d_data.
+/// Each block is responsible for the calculation of a single row.
+/// Kernel configuration requirements:
+/// (1) block_number == rows
+/// (2) shared_memory_number == thread_per_block == cols
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="d_max_rows"></param>
+/// <param name="rows"></param>
+/// <param name="cols"></param>
+/// <param name="extra"></param>
+/// <returns></returns>
+__global__ void maxRowsIdx(float* d_data, int* d_max_rows_idx, int rows, int cols, float extra)
+{
+	int bid = blockIdx.x;
+	int tid = threadIdx.x;
+	int nTPB = blockDim.x;
+
+	int t_max_idx = tid;
+	for (int i = tid + nTPB; i < cols; i += nTPB) {
+		t_max_idx = (d_data[bid * cols + i] > d_data[bid * cols + t_max_idx]) ? i : t_max_idx;
+	}
+
+	// Perform a reduction within the block to compute the final sum
+	extern __shared__ int sdata_max_rows_int[];
+	sdata_max_rows_int[tid] = t_max_idx;
+	__syncthreads();
+
+	for (int s = (nTPB >> 1); s > 0; s >>= 1) {
+		if (tid < s) {
+			sdata_max_rows_int[tid] = (d_data[bid * cols + sdata_max_rows_int[tid]] > d_data[bid * cols + sdata_max_rows_int[tid + s]]) ? sdata_max_rows_int[tid] : sdata_max_rows_int[tid + s];
+		}
+		__syncthreads();
+	}
+
+	if (tid == 0) {
+		d_max_rows_idx[bid] = sdata_max_rows_int[0];
+	}
+}
+
+
 __global__ void sumRows(cuComplex* d_data, cuComplex* d_sum_rows, int rows, int cols)
 {
 	int bid = blockIdx.x;
 	int tid = threadIdx.x;
+	int nTPB = blockDim.x;
 
 	cuComplex t_sum = make_cuComplex(0.0f, 0.0f);
-	for (int i = tid; i < cols; i += blockDim.x) {
+	for (int i = tid; i < cols; i += nTPB) {
 		t_sum = cuCaddf(t_sum, d_data[bid * cols + i]);
 	}
 
@@ -362,7 +405,7 @@ __global__ void sumRows(cuComplex* d_data, cuComplex* d_sum_rows, int rows, int 
 	sdata_sum_rows_com_flt[tid] = t_sum;
 	__syncthreads();
 
-	for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+	for (int s = (nTPB >> 1); s > 0; s >>= 1) {
 		if (tid < s) {
 			sdata_sum_rows_com_flt[tid] = cuCaddf(sdata_sum_rows_com_flt[tid], sdata_sum_rows_com_flt[tid + s]);
 		}
@@ -379,9 +422,10 @@ __global__ void sumRows(float* d_data, float* d_sum_rows, int rows, int cols)
 {
 	int bid = blockIdx.x;
 	int tid = threadIdx.x;
+	int nTPB = blockDim.x;
 
 	float t_sum = 0.0f;
-	for (int i = tid; i < cols; i += blockDim.x) {
+	for (int i = tid; i < cols; i += nTPB) {
 		t_sum = t_sum + d_data[bid * cols + i];
 	}
 
@@ -390,7 +434,7 @@ __global__ void sumRows(float* d_data, float* d_sum_rows, int rows, int cols)
 	sdata_sum_rows_flt[tid] = t_sum;
 	__syncthreads();
 
-	for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+	for (int s = (nTPB >> 1); s > 0; s >>= 1) {
 		if (tid < s) {
 			sdata_sum_rows_flt[tid] = sdata_sum_rows_flt[tid] + sdata_sum_rows_flt[tid + s];
 		}
@@ -683,6 +727,7 @@ pulseCompression::pulseCompression(const int& NFFT, const int& dataIQ_len, const
 	checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * sampling_num));
 	checkCudaErrors(cudaMalloc((void**)&d_tk, sizeof(float) * sampling_num));
 	checkCudaErrors(cudaMalloc((void**)&d_ref, sizeof(cuComplex) * m_NFFT));
+	checkCudaErrors(cudaMalloc((void**)&d_dataW_echo, sizeof(cuComplex) * m_range_num_ifds_pc));
 }
 
 
@@ -697,6 +742,7 @@ pulseCompression::~pulseCompression()
 	checkCudaErrors(cudaFree(d_hamming));
 	checkCudaErrors(cudaFree(d_tk));
 	checkCudaErrors(cudaFree(d_ref));
+	checkCudaErrors(cudaFree(d_dataW_echo));
 }
 
 
@@ -742,9 +788,6 @@ void pulseCompression::pulseCompressionbyFFT(std::complex<float>* h_dataW_echo, 
 	//dDataDisp(d_dataIQ, 10, 100);
 
 	// Cut range profile
-	cuComplex* d_dataW_echo = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_dataW_echo, sizeof(cuComplex) * m_range_num_ifds_pc));
-
 	cutRangeProfile(d_dataIQ, d_dataW_echo, m_NFFT, m_range_num_ifds_pc, m_range_num_ifds_pc, handle);
 
 	// d_dataW_echo(device to host)

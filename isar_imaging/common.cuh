@@ -583,11 +583,12 @@ private:
 	float* d_hamming;
 	float* d_tk;
 	cuComplex* d_ref;
+	cuComplex* d_dataW_echo = nullptr;
 
 public:
 
 	/// <summary>
-	/// 
+	/// Constructor.
 	/// </summary>
 	/// <param name="NFFT"></param>
 	/// <param name="dataIQ_len"></param>
@@ -596,12 +597,12 @@ public:
 	pulseCompression(const int& NFFT, const int& dataIQ_len, const int& range_num_ifds_pc, const RadarParameters& paras);
 
 	/// <summary>
-	/// 
+	/// De constructor;
 	/// </summary>
 	~pulseCompression();
 
 	/// <summary>
-	/// 
+	/// Default equal operator.
 	/// </summary>
 	/// <param name="other"></param>
 	/// <returns></returns>
