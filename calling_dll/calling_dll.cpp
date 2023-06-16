@@ -17,8 +17,8 @@ enum POLAR_TYPE
 int main()
 {
     // * Imaging parameters
-    //std::string dir_path("C:\\Users\\Admin\\Documents\\isar_imaging_data\\180411230920_000004_1318_01");  // IFDS
-    std::string dir_path("C:\\Users\\Admin\\Documents\\isar_imaging_data\\210425235341_047414_1383_00");  // STRETCH
+    std::string dir_path("C:\\Users\\Admin\\Documents\\isar_imaging_data\\180411230920_000004_1318_01");  // IFDS
+    //std::string dir_path("C:\\Users\\Admin\\Documents\\isar_imaging_data\\210425235341_047414_1383_00");  // STRETCH
     int imaging_stride = 10;
     int sampling_stride = 1;
     int window_head = 0;
@@ -57,7 +57,7 @@ int main()
     float* h_img = img.data();
 
     // * Sequential imaging process
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 1; ++i) {
         int window_end = window_head + sampling_stride * window_len - 1;
         //if (window_end > frame_num) {
         //    printf("[main/WARN] window_end > frame_num\n");

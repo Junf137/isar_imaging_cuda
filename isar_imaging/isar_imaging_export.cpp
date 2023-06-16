@@ -63,10 +63,10 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnA
 
     bool uni_sampling = true;
     if (uni_sampling == true) {
-        uniformSampling(dataWFileSn, dataNOut, turnAngleOut, dataN, turnAngle, frame_num, sampling_stride, window_head, window_len);
+        io.uniformSampling(dataWFileSn, dataNOut, turnAngleOut, dataN, turnAngle, frame_num, sampling_stride, window_head, window_len);
     }
     else {
-        nonUniformSampling();
+        io.nonUniformSampling();
     }
 
     io.getSignalData(dataW, paras, *dataNOut, frame_len, frame_num, *dataWFileSn, window_len);

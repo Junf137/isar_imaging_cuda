@@ -228,6 +228,33 @@ void sumRowsTime(int rows, int cols)
 
 int main(int argc, char** argv)
 {
+    //float flt[4] = { 1.0f, 2.0f, 3.0f, 4.0f };
+
+    //// reinterpret_cast test
+    //std::complex<float>* cflt = reinterpret_cast<std::complex<float>*>(flt);
+    //std::cout << cflt[0] << std::endl;
+    //std::cout << cflt[1] << std::endl;
+
+    // define a array of 10 int16 value and initialize it
+    int len = 10;
+    int16_t* h_data = new int16_t[len];
+    for (int i = 0; i < len; ++i) {
+		h_data[i] = i + 1;
+	}
+
+    // malloc device memory(array of 5 int32 value)
+    //cuComplex* d_data = nullptr;
+    //float* d_data_flt = reinterpret_cast<float*>(d_data);
+    float* d_data_flt = nullptr;
+    checkCudaErrors(cudaMalloc((void**)&d_data_flt, sizeof(int32_t) * len));
+
+    // copy data from host to device
+    checkCudaErrors(cudaMemcpy(d_data_flt, h_data, sizeof(int16_t) * len, cudaMemcpyHostToDevice));
+
+    // print data on device
+    dDataDisp(d_data_flt, len, 1);
+
+
     // cufftTime
     //cufftTime(256 * 1000);
     //cufftTime(512 * 1000);

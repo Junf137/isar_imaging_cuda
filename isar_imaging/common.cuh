@@ -511,62 +511,6 @@ __global__ void setNumInArray(int* d_data, int* d_index, int val, int d_index_le
 void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles);
 
 
-/// <summary>
-/// Calculate target rotation angle, calculate unit vector of two radar's observation direction
-/// </summary>
-/// <param name="azimuth1"></param>
-/// <param name="pitching1"></param>
-/// <param name="azimuth2"></param>
-/// <param name="pitching2"></param>
-/// <returns></returns>
-float getTurnAngle(const float& azimuth1, const float& pitching1, const float& azimuth2, const float& pitching2);
-
-
-/// <summary>
-/// Calculating target rotation angle curve.
-/// finding lost point, then estimate turn angle for each segment, finally add them together.
-/// </summary>
-/// <param name="turnAngle"> target rotation angle curve </param>
-/// <param name="azimuth">  </param>
-/// <param name="pitching">  </param>
-/// <returns></returns>
-int turnAngleLine(vec1D_FLT* turnAngle, const vec1D_FLT& azimuth, const vec1D_FLT& pitching);
-
-
-/// <summary>
-/// Returns interpolated value at x from parallel arrays ( xData, yData )
-/// Assumes that xData has at least two elements, is sorted and is strictly monotonic increasing
-/// boolean argument extrapolate determines behavior beyond ends of array (if needed)
-/// </summary>
-/// <param name="xData"></param>
-/// <param name="yData"></param>
-/// <param name="x"> interpolation point </param>
-/// <param name="extrapolate"> option for extrapolate </param>
-/// <returns></returns>
-float interpolate(const vec1D_INT& xData, const vec1D_FLT& yData, const int& x, const bool& extrapolate);
-
-
-/// <summary>
-/// 
-/// </summary>
-/// <param name="dataWFileSn"></param>
-/// <param name="dataNOut"></param>
-/// <param name="turnAngleOut"></param>
-/// <param name="dataN"></param>
-/// <param name="turnAngle"></param>
-/// <param name="frame_num"></param>
-/// <param name="sampling_stride"></param>
-/// <param name="window_head"></param>
-/// <param name="window_len"></param>
-/// <returns></returns>
-int uniformSampling(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, \
-	const vec1D_DBL& dataN, const vec1D_FLT& turnAngle, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len);
-
-
-//function [flag_data_end DataW_FileSn DataNOut TurnAngleOut] = NonUniformitySampling(DataN, RadarParameters, TurnAngle, start, M)
-int nonUniformSampling();
-
-
 /* pulseCompression Class */
 class pulseCompression
 {
@@ -694,6 +638,38 @@ public:
 		const RadarParameters& paras, const int& frame_len, const int& frame_num);
 
 	/// <summary>
+	/// Calculating target rotation angle curve.
+	/// finding lost point, then estimate turn angle for each segment, finally add them together.
+	/// </summary>
+	/// <param name="turnAngle"> target rotation angle curve </param>
+	/// <param name="azimuth">  </param>
+	/// <param name="pitching">  </param>
+	/// <returns></returns>
+	static int turnAngleLine(vec1D_FLT* turnAngle, const vec1D_FLT& azimuth, const vec1D_FLT& pitching);
+
+	/// <summary>
+	/// Calculate target rotation angle, calculate unit vector of two radar's observation direction
+	/// </summary>
+	/// <param name="azimuth1"></param>
+	/// <param name="pitching1"></param>
+	/// <param name="azimuth2"></param>
+	/// <param name="pitching2"></param>
+	/// <returns></returns>
+	static float getTurnAngle(const float& azimuth1, const float& pitching1, const float& azimuth2, const float& pitching2);
+
+	/// <summary>
+	/// Returns interpolated value at x from parallel arrays ( xData, yData )
+	/// Assumes that xData has at least two elements, is sorted and is strictly monotonic increasing
+	/// boolean argument extrapolate determines behavior beyond ends of array (if needed)
+	/// </summary>
+	/// <param name="xData"></param>
+	/// <param name="yData"></param>
+	/// <param name="x"> interpolation point </param>
+	/// <param name="extrapolate"> option for extrapolate </param>
+	/// <returns></returns>
+	static float interpolate(const vec1D_INT& xData, const vec1D_FLT& yData, const int& x, const bool& extrapolate);
+
+	/// <summary>
 	/// 
 	/// </summary>
 	/// <param name="dataW"></param>
@@ -706,6 +682,26 @@ public:
 	/// <returns></returns>
 	int getSignalData(vec1D_COM_FLT* dataW, \
 		const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const vec1D_INT& dataWFileSn, const int& window_len);
+
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="dataWFileSn"></param>
+	/// <param name="dataNOut"></param>
+	/// <param name="turnAngleOut"></param>
+	/// <param name="dataN"></param>
+	/// <param name="turnAngle"></param>
+	/// <param name="frame_num"></param>
+	/// <param name="sampling_stride"></param>
+	/// <param name="window_head"></param>
+	/// <param name="window_len"></param>
+	/// <returns></returns>
+	int uniformSampling(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, \
+		const vec1D_DBL& dataN, const vec1D_FLT& turnAngle, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len);
+
+
+	//function [flag_data_end DataW_FileSn DataNOut TurnAngleOut] = NonUniformitySampling(DataN, RadarParameters, TurnAngle, start, M)
+	int nonUniformSampling();
 
 	/// <summary>
 	/// write data reside in CPU memory back to outFilePath

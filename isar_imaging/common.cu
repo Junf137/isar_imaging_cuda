@@ -506,152 +506,6 @@ void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const RadarParameters& paras,
 }
 
 
-float getTurnAngle(const float& azimuth1, const float& pitching1, const float& azimuth2, const float& pitching2) {
-	vec1D_FLT vec_1({ std::sin(pitching1 / 180 * PI_FLT), \
-		std::cos(pitching1 / 180 * PI_FLT) * std::cos(azimuth1 / 180 * PI_FLT), \
-		std::cos(pitching1 / 180 * PI_FLT) * std::sin(azimuth1 / 180 * PI_FLT) });
-
-	vec1D_FLT vec_2({ std::sin(pitching2 / 180 * PI_FLT), \
-		std::cos(pitching2 / 180 * PI_FLT) * std::cos(azimuth2 / 180 * PI_FLT), \
-		std::cos(pitching2 / 180 * PI_FLT) * std::sin(azimuth2 / 180 * PI_FLT) });
-
-	float ret = std::acos(vec_1[0] * vec_2[0] + vec_1[1] * vec_2[1] + vec_1[2] * vec_2[2]) / PI_FLT * 180;
-
-	return ret;
-}
-
-int turnAngleLine(vec1D_FLT* turnAngle, const vec1D_FLT& azimuth, const vec1D_FLT& pitching) {
-
-	vec1D_INT idx;
-	int pitchingSize = static_cast<int>(pitching.size());
-	for (int i = 0; i < pitchingSize - 1; ++i) {
-		if (std::abs(pitching[i + 1] - pitching[i]) > 0.2) {
-			idx.push_back(i);
-		}
-	}
-
-	vec1D_INT blkBeginNum;
-	vec1D_INT blkEndNum;
-	vec1D_INT blkLen;
-	int idxSize = idx.empty() ? 1 : static_cast<int>(idx.size());
-
-	blkBeginNum.insert(blkBeginNum.cend(), -1);
-	blkBeginNum.insert(blkBeginNum.cend(), idx.begin(), idx.end());
-	int blkSize = static_cast<int>(blkBeginNum.size());
-	std::for_each(blkBeginNum.begin(), blkBeginNum.end(), [](int& x) {x++; });
-
-	blkEndNum.insert(blkEndNum.cend(), idx.begin(), idx.end());
-	blkEndNum.insert(blkEndNum.cend(), pitchingSize - 1);
-
-	blkLen.assign(blkSize, 0);
-	std::transform(blkEndNum.cbegin(), blkEndNum.cend(), blkBeginNum.cbegin(), blkLen.begin(), [](const int& end, const int& begin) {return end - begin + 1; });
-
-	turnAngle->assign(pitchingSize, 0);
-	for (int blkIdx = 0; blkIdx < blkSize; ++blkIdx) {
-		int N = blkLen[blkIdx];
-		int stride = (N < 21) ? 1 : 20;
-		for (int i = stride; i < N; i += stride) {
-			int currentPulseNum = blkBeginNum[blkIdx] + i;
-			float azimuth1 = azimuth[currentPulseNum - stride];
-			float azimuth2 = azimuth[currentPulseNum];
-			float pitching1 = pitching[currentPulseNum - stride];
-			float pitching2 = pitching[currentPulseNum];
-			float turnAngleSingle = getTurnAngle(azimuth1, pitching1, azimuth2, pitching2);
-			turnAngle->at(currentPulseNum) = turnAngle->at(currentPulseNum - stride) + turnAngleSingle;  // angle superposition
-		}
-		int turnAngleSize = static_cast<int>(turnAngle->size());
-		for (int i = 0; i < turnAngleSize; ++i) {
-			turnAngle->at(i) = std::abs(turnAngle->at(i));
-		}
-		if (N >= 21) {
-			vec1D_INT x = [=]() {
-				vec1D_INT v;
-				for (int i = 0; (i + stride) <= N; i += stride) {
-					v.push_back(i);
-				}
-				return v;
-			}();  // todo: range generate
-			vec1D_FLT Y = [=]() {
-				vec1D_FLT v;
-				int xSize = static_cast<int>(x.size());
-				for (int i = 0; i < xSize; ++i) {  // interpolation movement
-					v.push_back(turnAngle->at(x[i]));
-				}
-				return v;
-			}();
-			vec1D_FLT turnAngleInterp = [=]() {
-				vec1D_FLT v;
-				for (int i = 0; i < N; ++i) {
-					v.push_back(interpolate(x, Y, i, false));
-				}
-				return v;
-			}();
-			turnAngle->erase(turnAngle->cbegin() + blkBeginNum[blkIdx], turnAngle->cbegin() + blkEndNum[blkIdx] + 1);
-			turnAngle->insert(turnAngle->cbegin() + blkBeginNum[blkIdx], turnAngleInterp.cbegin(), turnAngleInterp.cend());
-		}
-
-		if (blkIdx > 0) {
-			for (int i = blkBeginNum[blkIdx]; i <= blkEndNum[blkIdx]; ++i) {
-				turnAngle->at(i) += turnAngle->at(blkEndNum[blkIdx - 1]);
-			}
-		}
-	}
-
-	return EXIT_SUCCESS;
-}
-
-
-float interpolate(const vec1D_INT& xData, const vec1D_FLT& yData, const int& x, const bool& extrapolate) {
-	int size = static_cast<int>(xData.size());
-
-	int i = 0;  // find left end of interval for interpolation
-	if (x >= xData[size - 2]) {  // special case: beyond right end
-		i = size - 2;
-	}
-	else {
-		while (x > xData[i + 1]) i++;
-	}
-	float xL = static_cast<float>(xData[i]);
-	float yL = yData[i];
-	float xR = static_cast<float>(xData[i + 1]);
-	float yR = yData[i + 1];  // points on either side (unless beyond ends)
-	if (!extrapolate) {  // if beyond ends of array and not extrapolating
-		if (x < xL) yR = yL;
-		if (x > xR) yL = yR;
-	}
-
-	float dydx = (yR - yL) / (xR - xL);  // gradient
-
-	return yL + dydx * (x - xL);  // linear interpolation
-}
-
-
-int uniformSampling(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, \
-	const vec1D_DBL& dataN, const vec1D_FLT& turnAngle, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len)
-{
-	// dataWFileSn = window_head:sampling_stride:window_end;
-	for (int i = 0; i < window_len; ++i) {
-		dataWFileSn->at(i) = window_head + i * sampling_stride;
-	}
-
-	// extracting dataNout from dataN based on index from dataWFileSn
-	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin() + 0 * window_len, [&](const int& x) {return dataN[x + 0 * frame_num]; });
-	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin() + 1 * window_len, [&](const int& x) {return dataN[x + 1 * frame_num]; });
-	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin() + 2 * window_len, [&](const int& x) {return dataN[x + 2 * frame_num]; });
-	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin() + 3 * window_len, [&](const int& x) {return dataN[x + 3 * frame_num]; });
-
-	// extracting turnANgleOut from turnANgle based on index from dataWFileSn
-	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), turnAngleOut->begin(), [&](const int& x) {return std::abs(turnAngle[x]); });
-
-	return EXIT_SUCCESS;
-}
-
-
-int nonUniformSampling() {
-	return EXIT_SUCCESS;
-}
-
-
 /// <summary>
 /// 
 /// </summary>
@@ -685,9 +539,22 @@ __global__ void genRefPulseCompression(cuComplex* d_ref, float* d_tk, float* d_h
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
 	if (tid < len) {
-		//temp2 = -2 * 3.14159265 * F0 * v2 * (*(t + i)) / temp + 3.14159265 * Band / Taup * pow(*(t + i), 2);  //3.14159265
+		//temp2 = -2 * 3.14159265 * F0 * v2 * t[i] / temp + 3.14159265 * Band / Taup * pow(t[i], 2);  //3.14159265
 		float tmp = constant_1 * d_tk[tid] + constant_2 * d_tk[tid] * d_tk[tid];
 		d_ref[tid] = make_cuComplex(d_hamming[tid] * std::cos(tmp), d_hamming[tid] * std::sin(tmp));
+		
+		//if (tid == 0) {
+		//	printf("%f %f %f %f\n", d_hamming[tid], tmp, std::cos(tmp), std::sin(tmp));
+		//}
+		//if (tid == 100) {
+		//	printf("%f %f %f %f\n", d_hamming[tid], tmp, std::cos(tmp), std::sin(tmp));
+		//}
+		//if (tid == 2399999) {
+		//	printf("%f %f %f %f\n", d_hamming[tid], tmp, std::cos(tmp), std::sin(tmp));
+		//}
+		//if (tid == 2400000) {
+		//	printf("%f %f %f %f\n", d_hamming[tid], tmp, std::cos(tmp), std::sin(tmp));
+		//}
 	}
 }
 
@@ -697,6 +564,19 @@ void dDataDisp(cuComplex* d_data, int rows, int cols)
 {
 	std::complex<float>* h_data = new std::complex<float>[rows * cols];
 	checkCudaErrors(cudaMemcpy(h_data, d_data, sizeof(std::complex<float>) * rows * cols, cudaMemcpyDeviceToHost));
+	for (int i = 0; i < rows; ++i) {
+		for (int j = 0; j < cols; ++j) {
+			std::cout << h_data[i * cols + j] << " ";
+		}
+		std::cout << std::endl;
+	}
+	std::cout << std::endl;
+	delete[] h_data;
+}
+void dDataDisp(float* d_data, int rows, int cols)
+{
+	float* h_data = new float[rows * cols];
+	checkCudaErrors(cudaMemcpy(h_data, d_data, sizeof(float) * rows * cols, cudaMemcpyDeviceToHost));
 	for (int i = 0; i < rows; ++i) {
 		for (int j = 0; j < cols; ++j) {
 			std::cout << h_data[i * cols + j] << " ";
@@ -728,6 +608,11 @@ pulseCompression::pulseCompression(const int& NFFT, const int& dataIQ_len, const
 	checkCudaErrors(cudaMalloc((void**)&d_tk, sizeof(float) * sampling_num));
 	checkCudaErrors(cudaMalloc((void**)&d_ref, sizeof(cuComplex) * m_NFFT));
 	checkCudaErrors(cudaMalloc((void**)&d_dataW_echo, sizeof(cuComplex) * m_range_num_ifds_pc));
+
+	// Generate hamming window vector
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);
+	genHammingVec << <dim3((sampling_num + block.x - 1) / block.x), block >> > (d_hamming, sampling_num);
+	checkCudaErrors(cudaDeviceSynchronize());
 }
 
 
@@ -754,7 +639,6 @@ void pulseCompression::pulseCompressionbyFFT(std::complex<float>* h_dataW_echo, 
 	// h_dataIQ_echo(host to device)
 	checkCudaErrors(cudaMemcpy(d_dataIQ, h_dataIQ_echo, sizeof(cuComplex) * m_dataIQ_len, cudaMemcpyHostToDevice));
 
-	// [todo] reference signal reuse
 	// Generating reference signal
 	int sampling_num = static_cast<int>(m_paras.Fs * m_paras.Tp);
 	float v2 = 2 * static_cast<float>(velocity_echo) / LIGHT_SPEED;
@@ -763,14 +647,27 @@ void pulseCompression::pulseCompressionbyFFT(std::complex<float>* h_dataW_echo, 
 	float constant_2 = static_cast<float>(PI_FLT * m_paras.band_width / m_paras.Tp);
 	float scale_ifft = 1.0f / m_NFFT;
 
-	genHammingVec << <dim3((sampling_num + block.x - 1) / block.x), block >> > (d_hamming, sampling_num);
-	checkCudaErrors(cudaDeviceSynchronize());
+	// display
+	dDataDisp(d_hamming + 0, 1, 1);
+	dDataDisp(d_hamming + 100, 1, 1);
+	dDataDisp(d_hamming + 2399999, 1, 1);
 
 	genTkPulseCompression << <dim3((sampling_num + block.x - 1) / block.x), block >> > (d_tk, static_cast<float>(m_paras.Tp), _v2, sampling_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
+	// display
+	dDataDisp(d_tk + 0, 1, 1);
+	dDataDisp(d_tk + 100, 1, 1);
+	dDataDisp(d_tk + 2399999, 1, 1);
+
 	genRefPulseCompression << <dim3((sampling_num + block.x - 1) / block.x), block >> > (d_ref, d_tk, d_hamming, constant_1, constant_2, sampling_num);
 	checkCudaErrors(cudaDeviceSynchronize());
+
+	// display
+	dDataDisp(d_ref + 0, 1, 1);
+	dDataDisp(d_ref + 100, 1, 1);
+	dDataDisp(d_ref + 2399999, 1, 1);
+	dDataDisp(d_ref + 2400000, 1, 1);
 
 	// FFT(signal and reference)
 	checkCudaErrors(cufftExecC2C(plan_pc_echo_c2c, d_dataIQ, d_dataIQ, CUFFT_FORWARD));
@@ -948,6 +845,127 @@ int ioOperation::readKuIFDSAllNB(vec1D_DBL* dataN, vec1D_FLT* turnAngle, \
 }
 
 
+int ioOperation::turnAngleLine(vec1D_FLT* turnAngle, const vec1D_FLT& azimuth, const vec1D_FLT& pitching) {
+
+	vec1D_INT idx;
+	int pitchingSize = static_cast<int>(pitching.size());
+	for (int i = 0; i < pitchingSize - 1; ++i) {
+		if (std::abs(pitching[i + 1] - pitching[i]) > 0.2) {
+			idx.push_back(i);
+		}
+	}
+
+	vec1D_INT blkBeginNum;
+	vec1D_INT blkEndNum;
+	vec1D_INT blkLen;
+	int idxSize = idx.empty() ? 1 : static_cast<int>(idx.size());
+
+	blkBeginNum.insert(blkBeginNum.cend(), -1);
+	blkBeginNum.insert(blkBeginNum.cend(), idx.begin(), idx.end());
+	int blkSize = static_cast<int>(blkBeginNum.size());
+	std::for_each(blkBeginNum.begin(), blkBeginNum.end(), [](int& x) {x++; });
+
+	blkEndNum.insert(blkEndNum.cend(), idx.begin(), idx.end());
+	blkEndNum.insert(blkEndNum.cend(), pitchingSize - 1);
+
+	blkLen.assign(blkSize, 0);
+	std::transform(blkEndNum.cbegin(), blkEndNum.cend(), blkBeginNum.cbegin(), blkLen.begin(), [](const int& end, const int& begin) {return end - begin + 1; });
+
+	turnAngle->assign(pitchingSize, 0);
+	for (int blkIdx = 0; blkIdx < blkSize; ++blkIdx) {
+		int N = blkLen[blkIdx];
+		int stride = (N < 21) ? 1 : 20;
+		for (int i = stride; i < N; i += stride) {
+			int currentPulseNum = blkBeginNum[blkIdx] + i;
+			float azimuth1 = azimuth[currentPulseNum - stride];
+			float azimuth2 = azimuth[currentPulseNum];
+			float pitching1 = pitching[currentPulseNum - stride];
+			float pitching2 = pitching[currentPulseNum];
+			float turnAngleSingle = getTurnAngle(azimuth1, pitching1, azimuth2, pitching2);
+			turnAngle->at(currentPulseNum) = turnAngle->at(currentPulseNum - stride) + turnAngleSingle;  // angle superposition
+		}
+		int turnAngleSize = static_cast<int>(turnAngle->size());
+		for (int i = 0; i < turnAngleSize; ++i) {
+			turnAngle->at(i) = std::abs(turnAngle->at(i));
+		}
+		if (N >= 21) {
+			vec1D_INT x = [=]() {
+				vec1D_INT v;
+				for (int i = 0; (i + stride) <= N; i += stride) {
+					v.push_back(i);
+				}
+				return v;
+			}();  // todo: range generate
+			vec1D_FLT Y = [=]() {
+				vec1D_FLT v;
+				int xSize = static_cast<int>(x.size());
+				for (int i = 0; i < xSize; ++i) {  // interpolation movement
+					v.push_back(turnAngle->at(x[i]));
+				}
+				return v;
+			}();
+			vec1D_FLT turnAngleInterp = [=]() {
+				vec1D_FLT v;
+				for (int i = 0; i < N; ++i) {
+					v.push_back(interpolate(x, Y, i, false));
+				}
+				return v;
+			}();
+			turnAngle->erase(turnAngle->cbegin() + blkBeginNum[blkIdx], turnAngle->cbegin() + blkEndNum[blkIdx] + 1);
+			turnAngle->insert(turnAngle->cbegin() + blkBeginNum[blkIdx], turnAngleInterp.cbegin(), turnAngleInterp.cend());
+		}
+
+		if (blkIdx > 0) {
+			for (int i = blkBeginNum[blkIdx]; i <= blkEndNum[blkIdx]; ++i) {
+				turnAngle->at(i) += turnAngle->at(blkEndNum[blkIdx - 1]);
+			}
+		}
+	}
+
+	return EXIT_SUCCESS;
+}
+
+
+float ioOperation::getTurnAngle(const float& azimuth1, const float& pitching1, const float& azimuth2, const float& pitching2) {
+	vec1D_FLT vec_1({ std::sin(pitching1 / 180 * PI_FLT), \
+		std::cos(pitching1 / 180 * PI_FLT) * std::cos(azimuth1 / 180 * PI_FLT), \
+		std::cos(pitching1 / 180 * PI_FLT) * std::sin(azimuth1 / 180 * PI_FLT) });
+
+	vec1D_FLT vec_2({ std::sin(pitching2 / 180 * PI_FLT), \
+		std::cos(pitching2 / 180 * PI_FLT) * std::cos(azimuth2 / 180 * PI_FLT), \
+		std::cos(pitching2 / 180 * PI_FLT) * std::sin(azimuth2 / 180 * PI_FLT) });
+
+	float ret = std::acos(vec_1[0] * vec_2[0] + vec_1[1] * vec_2[1] + vec_1[2] * vec_2[2]) / PI_FLT * 180;
+
+	return ret;
+}
+
+
+float ioOperation::interpolate(const vec1D_INT& xData, const vec1D_FLT& yData, const int& x, const bool& extrapolate) {
+	int size = static_cast<int>(xData.size());
+
+	int i = 0;  // find left end of interval for interpolation
+	if (x >= xData[size - 2]) {  // special case: beyond right end
+		i = size - 2;
+	}
+	else {
+		while (x > xData[i + 1]) i++;
+	}
+	float xL = static_cast<float>(xData[i]);
+	float yL = yData[i];
+	float xR = static_cast<float>(xData[i + 1]);
+	float yR = yData[i + 1];  // points on either side (unless beyond ends)
+	if (!extrapolate) {  // if beyond ends of array and not extrapolating
+		if (x < xL) yR = yL;
+		if (x > xR) yL = yR;
+	}
+
+	float dydx = (yR - yL) / (xR - xL);  // gradient
+
+	return yL + dydx * (x - xL);  // linear interpolation
+}
+
+
 int ioOperation::getSignalData(vec1D_COM_FLT* dataW, \
 	const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const vec1D_INT& dataWFileSn, const int& window_len)
 {
@@ -993,7 +1011,7 @@ int ioOperation::getSignalData(vec1D_COM_FLT* dataW, \
 
 			// Pulse compression
 			auto t_pc_1 = std::chrono::high_resolution_clock::now();
-			pc.pulseCompressionbyFFT(dataW->data() + i * RANGE_NUM_IFDS_PC, dataIQ, dataNOut[frame_num + dataWFileSn[i]]);
+			pc.pulseCompressionbyFFT(dataW->data() + i * RANGE_NUM_IFDS_PC, dataIQ, dataNOut[window_len + dataWFileSn[i]]);
 			auto t_pc_2 = std::chrono::high_resolution_clock::now();
 
 			std::cout << "[Pulse index] " << i + 1 << "\n";
@@ -1037,6 +1055,36 @@ int ioOperation::getSignalData(vec1D_COM_FLT* dataW, \
 		ifs_vec[i].close();
 	}
 
+	return EXIT_SUCCESS;
+}
+
+
+int ioOperation::uniformSampling(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, \
+	const vec1D_DBL& dataN, const vec1D_FLT& turnAngle, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len)
+{
+	// dataWFileSn = window_head:sampling_stride:window_end;
+	for (int i = 0; i < window_len; ++i) {
+		dataWFileSn->at(i) = window_head + i * sampling_stride;
+	}
+
+	int frame_num_total = frame_num * static_cast<int>(m_file_vec.size());
+
+	// [todo] frame_num bug fix
+	// extracting dataNout from dataN based on index from dataWFileSn
+	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin() + 0 * window_len, [&](const int& x) {return dataN[x + 0 * frame_num_total]; });
+	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin() + 1 * window_len, [&](const int& x) {return dataN[x + 1 * frame_num_total]; });
+	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin() + 2 * window_len, [&](const int& x) {return dataN[x + 2 * frame_num_total]; });
+	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), dataNOut->begin() + 3 * window_len, [&](const int& x) {return dataN[x + 3 * frame_num_total]; });
+
+	// extracting turnANgleOut from turnANgle based on index from dataWFileSn
+	std::transform(dataWFileSn->cbegin(), dataWFileSn->cend(), turnAngleOut->begin(), [&](const int& x) {return std::abs(turnAngle[x]); });
+
+	return EXIT_SUCCESS;
+}
+
+
+int ioOperation::nonUniformSampling() {
+	// [todo] Implementing non-uniform sampling
 	return EXIT_SUCCESS;
 }
 
