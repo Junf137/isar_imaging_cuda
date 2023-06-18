@@ -389,6 +389,16 @@ __global__ void expJ(double* x, cuDoubleComplex* res, int len);
 __global__ void genHammingVec(float* hamming, int len);
 
 
+/// <summary>
+/// 
+/// </summary>
+/// <param name="d_hamming"></param>
+/// <param name="range_num"></param>
+/// <param name="d_hamming_echoes"></param>
+/// <param name="echo_num"></param>
+void genHammingVecInit(float* d_hamming, int range_num, float* d_hamming_echoes, int echo_num);
+
+
 //template <typename T>
 ///// <summary>
 ///// Reference: https://stackoverflow.com/questions/27925979/thrustmax-element-slow-in-comparison-cublasisamax-more-efficient-implementat
@@ -506,9 +516,11 @@ __global__ void setNumInArray(int* d_data, int* d_index, int val, int d_index_le
 /// </summary>
 /// <param name="d_hrrp"></param>
 /// <param name="d_data"></param>
+/// <param name="d_hamming"></param>
 /// <param name="paras"></param>
+/// <param name="data_type"></param>
 /// <param name="handles"></param>
-void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles);
+void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, float* d_hamming, const RadarParameters& paras, const DATA_TYPE& data_type, const CUDAHandle& handles);
 
 
 /* pulseCompression Class */
@@ -527,7 +539,6 @@ private:
 	float* d_hamming;
 	float* d_tk;
 	cuComplex* d_ref;
-	cuComplex* d_dataW_echo = nullptr;
 
 public:
 
@@ -555,10 +566,10 @@ public:
 	/// <summary>
 	/// 
 	/// </summary>
-	/// <param name="h_dataW_echo"></param>
+	/// <param name="d_dataW_echo"></param>
 	/// <param name="h_dataIQ_echo"></param>
 	/// <param name="velocity_echo"></param>
-	void pulseCompressionbyFFT(std::complex<float>* h_dataW_echo, \
+	void pulseCompressionbyFFT(cuComplex* d_dataW_echo, \
 		const std::complex<float>* h_dataIQ_echo, const double velocity_echo);
 };
 
@@ -673,15 +684,16 @@ public:
 	/// 
 	/// </summary>
 	/// <param name="dataW"></param>
+	/// <param name="d_data"></param>
+	/// <param name="d_velocity"></param>
 	/// <param name="paras"></param>
 	/// <param name="dataNOut"></param>
 	/// <param name="frame_len"></param>
 	/// <param name="frame_num"></param>
 	/// <param name="dataWFileSn"></param>
-	/// <param name="window_len"></param>
 	/// <returns></returns>
-	int getSignalData(vec1D_COM_FLT* dataW, \
-		const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const vec1D_INT& dataWFileSn, const int& window_len);
+	int getSignalData(vec1D_COM_FLT* dataW, cuComplex* d_data, double* d_velocity, \
+		const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const vec1D_INT& dataWFileSn);
 
 	/// <summary>
 	/// 

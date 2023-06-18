@@ -236,6 +236,20 @@ __global__ void genHammingVec(float* d_hamming, int len)
 }
 
 
+void genHammingVecInit(float* d_hamming, int range_num, float* d_hamming_echoes, int echo_num)
+{
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);
+
+	// * Adding hamming window in range dimension
+	genHammingVec << <dim3((range_num + block.x - 1) / block.x), block >> > (d_hamming, range_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// * Adding hamming window in range dimension
+	genHammingVec << <dim3((echo_num + block.x - 1) / block.x), block >> > (d_hamming_echoes, echo_num);
+	checkCudaErrors(cudaDeviceSynchronize());
+}
+
+
 //template <typename T>
 //__global__ void getMaxIdx(const T* data, const int dsize, int* result)
 //{
@@ -494,15 +508,46 @@ __global__ void setNumInArray(int* d_data, int* d_index, int val, int d_index_le
 }
 
 
-void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles)
+void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, float* d_hamming, const RadarParameters& paras, const DATA_TYPE& data_type, const CUDAHandle& handles)
 {
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);  // block size
 
-	// fft
-	checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c, d_data, d_hrrp, CUFFT_FORWARD));
-	// fftshift
-	ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_hrrp, paras.range_num);
-	checkCudaErrors(cudaDeviceSynchronize());
+	// [todo]
+	switch (data_type) {
+	case DATA_TYPE::IFDS: {
+		// copy data to d_hrrp
+		checkCudaErrors(cudaMemcpy(d_hrrp, d_data, sizeof(cuComplex) * paras.data_num, cudaMemcpyDeviceToDevice));
+
+		// fftshift
+		ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_hrrp, paras.range_num);
+		checkCudaErrors(cudaDeviceSynchronize());
+
+		// fft
+		checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c, d_hrrp, d_hrrp, CUFFT_FORWARD));
+
+		// fftshift
+		ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_hrrp, paras.range_num);
+		checkCudaErrors(cudaDeviceSynchronize());
+
+		break;
+	}
+	case DATA_TYPE::STRETCH: {
+		// adding hamming window to each echo
+		elementwiseMultiplyRep << <dim3((paras.data_num + block.x - 1) / block.x), block >> > (d_hamming, d_data, d_data, paras.range_num, paras.data_num);
+		checkCudaErrors(cudaDeviceSynchronize());
+
+		// fft
+		checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c, d_data, d_hrrp, CUFFT_FORWARD));
+
+		// fftshift
+		ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_hrrp, paras.range_num);
+		checkCudaErrors(cudaDeviceSynchronize());
+
+		break;
+	}
+	default:
+		break;
+	}
 }
 
 
@@ -607,7 +652,6 @@ pulseCompression::pulseCompression(const int& NFFT, const int& dataIQ_len, const
 	checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * sampling_num));
 	checkCudaErrors(cudaMalloc((void**)&d_tk, sizeof(float) * sampling_num));
 	checkCudaErrors(cudaMalloc((void**)&d_ref, sizeof(cuComplex) * m_NFFT));
-	checkCudaErrors(cudaMalloc((void**)&d_dataW_echo, sizeof(cuComplex) * m_range_num_ifds_pc));
 
 	// Generate hamming window vector
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);
@@ -627,11 +671,10 @@ pulseCompression::~pulseCompression()
 	checkCudaErrors(cudaFree(d_hamming));
 	checkCudaErrors(cudaFree(d_tk));
 	checkCudaErrors(cudaFree(d_ref));
-	checkCudaErrors(cudaFree(d_dataW_echo));
 }
 
 
-void pulseCompression::pulseCompressionbyFFT(std::complex<float>* h_dataW_echo, \
+void pulseCompression::pulseCompressionbyFFT(cuComplex* d_dataW_echo, \
 	const std::complex<float>* h_dataIQ_echo, const double velocity_echo)
 {
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);
@@ -686,9 +729,6 @@ void pulseCompression::pulseCompressionbyFFT(std::complex<float>* h_dataW_echo, 
 
 	// Cut range profile
 	cutRangeProfile(d_dataIQ, d_dataW_echo, m_NFFT, m_range_num_ifds_pc, m_range_num_ifds_pc, handle);
-
-	// d_dataW_echo(device to host)
-	checkCudaErrors(cudaMemcpy(h_dataW_echo, d_dataW_echo, sizeof(cuComplex) * m_range_num_ifds_pc, cudaMemcpyDeviceToHost));
 }
 
 
@@ -966,8 +1006,8 @@ float ioOperation::interpolate(const vec1D_INT& xData, const vec1D_FLT& yData, c
 }
 
 
-int ioOperation::getSignalData(vec1D_COM_FLT* dataW, \
-	const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const vec1D_INT& dataWFileSn, const int& window_len)
+int ioOperation::getSignalData(vec1D_COM_FLT* dataW, cuComplex* d_data, double* d_velocity, \
+	const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const vec1D_INT& dataWFileSn)
 {
 	std::vector<std::ifstream> ifs_vec(m_file_vec.size());
 	for (int i = 0; i < m_file_vec.size(); ++i) {
@@ -994,7 +1034,7 @@ int ioOperation::getSignalData(vec1D_COM_FLT* dataW, \
 		// Initializing object of pulse compression for a single thread.
 		pulseCompression pc(nextPow2(dataIQ_size), dataIQ_size, RANGE_NUM_IFDS_PC, paras);
 
-		for (int i = 0; i < window_len; ++i) {
+		for (int i = 0; i < paras.echo_num; ++i) {
 			file_idx = dataWFileSn[i] / frame_num;
 
 			// Read data
@@ -1011,7 +1051,7 @@ int ioOperation::getSignalData(vec1D_COM_FLT* dataW, \
 
 			// Pulse compression
 			auto t_pc_1 = std::chrono::high_resolution_clock::now();
-			pc.pulseCompressionbyFFT(dataW->data() + i * RANGE_NUM_IFDS_PC, dataIQ, dataNOut[window_len + dataWFileSn[i]]);
+			pc.pulseCompressionbyFFT(d_data + i * RANGE_NUM_IFDS_PC, dataIQ, dataNOut[paras.echo_num + dataWFileSn[i]]);
 			auto t_pc_2 = std::chrono::high_resolution_clock::now();
 
 			std::cout << "[Pulse index] " << i + 1 << "\n";
@@ -1030,7 +1070,7 @@ int ioOperation::getSignalData(vec1D_COM_FLT* dataW, \
 	}
 	case DATA_TYPE::STRETCH: {
 		// In STERTCH mode, read all pulse data and write it to dataW for imaging process
-		for (int i = 0; i < window_len; ++i) {
+		for (int i = 0; i < paras.echo_num; ++i) {
 			file_idx = dataWFileSn[i] / frame_num;
 
 			ifs_vec[file_idx].seekg((dataWFileSn[i] - file_idx * frame_num) * frame_len + 256, std::ifstream::beg);
@@ -1041,11 +1081,18 @@ int ioOperation::getSignalData(vec1D_COM_FLT* dataW, \
 			}
 		}
 
+		// d_data (host -> device)
+		std::complex<float>* h_data = dataW->data();
+		checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(cuComplex) * paras.data_num, cudaMemcpyHostToDevice));
+
 		break;
 	}
 	default:
 		break;
 	}
+
+	// Transfer Velocity Data(host to device)
+	checkCudaErrors(cudaMemcpy(d_velocity, dataNOut.data() + paras.echo_num, sizeof(double) * paras.echo_num, cudaMemcpyHostToDevice));
 
 	delete[] dataAD;
 	dataAD = nullptr;

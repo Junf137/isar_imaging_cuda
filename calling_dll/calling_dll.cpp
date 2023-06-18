@@ -17,11 +17,11 @@ enum POLAR_TYPE
 int main()
 {
     // * Imaging parameters
-    std::string dir_path("C:\\Users\\Admin\\Documents\\isar_imaging_data\\180411230920_000004_1318_01");  // IFDS
-    //std::string dir_path("C:\\Users\\Admin\\Documents\\isar_imaging_data\\210425235341_047414_1383_00");  // STRETCH
+    //std::string dir_path("C:\\Users\\Admin\\Documents\\isar_imaging_data\\180411230920_000004_1318_01");  // IFDS
+    std::string dir_path("C:\\Users\\Admin\\Documents\\isar_imaging_data\\210425235341_047414_1383_00");  // STRETCH
     int imaging_stride = 10;
     int sampling_stride = 1;
-    int window_head = 0;
+    int window_head = 9;
     int window_len = 256;
     
     int polar_type = static_cast<int>((dir_path.find("210425235341_047414_1383_00") == std::string::npos) ? POLAR_TYPE::LHP : POLAR_TYPE::RHP);
@@ -46,39 +46,30 @@ int main()
     // * GPU device initialization
     gpuDevInit();
 
-    // * Starting imaging for file in dir_path
-    // * Data parsing
+    // * Imaging process
+    // Data parsing
     dataParsing(&dataN, &turnAngle, &frame_len, &frame_num, dir_path, polar_type, data_type);
 
-    // * Data initialization
+    // Data initialization
     imagingMemInit(&img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len, data_type);
 
-    const std::complex<float>* h_data = dataW.data();
-    float* h_img = img.data();
-
-    // * Sequential imaging process
-    for (int i = 0; i < 1; ++i) {
-        int window_end = window_head + sampling_stride * window_len - 1;
-        //if (window_end > frame_num) {
-        //    printf("[main/WARN] window_end > frame_num\n");
-        //    break;
-        //}
-
-        auto t_imaging_1 = std::chrono::high_resolution_clock::now();
-        
+    // Sequential imaging process
+    for (int i = 0; i < 10; ++i) {
         // Data extracting
         dataExtracting(&dataWFileSn, &dataNOut, &turnAngleOut, &dataW, dataN, turnAngle, frame_len, frame_num, sampling_stride, window_head, window_len, data_type);
 
-        // Single ISAR imaging process
-        isarMainSingle(h_img, data_type, h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
+        auto t_imaging_1 = std::chrono::high_resolution_clock::now();
 
-        // Write h_img data into file
-        //writeFileFLT(dir_path + "\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), h_img, window_len * 512);
-        
-        window_head += imaging_stride;
+        // Single ISAR imaging process
+        isarMainSingle(img.data(), data_type, option_alignment, option_phase, if_hpc, if_mtrc);
 
         auto t_imaging_2 = std::chrono::high_resolution_clock::now();
         printf("[img %2d] %3dms\n\n", i + 1, static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(t_imaging_2 - t_imaging_1).count()));
+
+        // Write h_img data into file
+        writeFileFLT(dir_path + "\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), img.data(), window_len * 512);
+        
+        window_head += imaging_stride;
     }
 
     // * Free allocated memory

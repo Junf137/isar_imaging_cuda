@@ -96,15 +96,13 @@ extern "C" DLL_EXPORT_API void imagingMemInit(vec1D_FLT * h_img, vec1D_INT * dat
 /// </summary>
 /// <param name="h_img"></param>
 /// <param name="data_type"></param>
-/// <param name="h_data"></param>
-/// <param name="dataNOut"></param>
 /// <param name="option_alignment"></param>
 /// <param name="option_phase"></param>
 /// <param name="if_hpc"></param>
 /// <param name="if_mtrc"></param>
 /// <returns></returns>
 extern "C" DLL_EXPORT_API void isarMainSingle(float* h_img, \
-	const int& data_type, const std::complex<float>*h_data, const vec1D_DBL & dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc);
+	const int& data_type, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc);
 
 
 /// <summary>

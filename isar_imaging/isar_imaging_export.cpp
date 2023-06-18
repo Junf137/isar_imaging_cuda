@@ -69,7 +69,7 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnA
         io.nonUniformSampling();
     }
 
-    io.getSignalData(dataW, paras, *dataNOut, frame_len, frame_num, *dataWFileSn, window_len);
+    io.getSignalData(dataW, d_data, d_velocity, paras, *dataNOut, frame_len, frame_num, *dataWFileSn);
 
 #ifdef SEPARATE_TIMEING_
     auto t_data_extract_2 = std::chrono::high_resolution_clock::now();
@@ -134,6 +134,9 @@ void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOu
     checkCudaErrors(cudaMalloc((void**)&d_hamming_echoes, sizeof(float) * paras.echo_num));
     checkCudaErrors(cudaMalloc((void**)&d_img, sizeof(float) * paras.echo_num * paras.range_num_cut));
 
+    // generate hamming window
+    genHammingVecInit(d_hamming, paras.range_num, d_hamming_echoes, paras.echo_num);
+
 #ifdef SEPARATE_TIMEING_
     auto t_init_gpu_2 = std::chrono::high_resolution_clock::now();
     std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(t_init_gpu_2 - t_init_gpu_1).count() << "ms\n";
@@ -144,9 +147,9 @@ void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOu
 
 
 void isarMainSingle(float* h_img, \
-    const int& data_type, const std::complex<float>* h_data, const vec1D_DBL& dataNOut, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
+    const int& data_type, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
 {
-    ISAR_RD_Imaging_Main_Ku(h_img, d_data, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, static_cast<DATA_TYPE>(data_type), h_data, dataNOut, option_alignment, option_phase, if_hpc, if_mtrc);
+    ISAR_RD_Imaging_Main_Ku(h_img, d_data, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, static_cast<DATA_TYPE>(data_type), option_alignment, option_phase, if_hpc, if_mtrc);
 }
 
 
