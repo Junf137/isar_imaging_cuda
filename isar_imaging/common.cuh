@@ -531,6 +531,7 @@ private:
 	int m_dataIQ_len;
 	int m_range_num_ifds_pc;
 	RadarParameters m_paras;
+	int m_sampling_num;
 
 	cublasHandle_t handle;
 	cufftHandle plan_pc_echo_c2c;
@@ -572,7 +573,6 @@ public:
 	void pulseCompressionbyFFT(cuComplex* d_dataW_echo, \
 		const std::complex<float>* h_dataIQ_echo, const double velocity_echo);
 };
-
 
 
 /* ioOperation Class */

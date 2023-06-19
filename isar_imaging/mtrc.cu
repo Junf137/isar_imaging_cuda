@@ -1,7 +1,7 @@
 #include "mtrc.cuh"
 
 
-void mtrc(cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles)
+void mtrc(cuComplex* d_data, const RadarParameters& paras, const DATA_TYPE& data_type, const CUDAHandle& handles)
 {
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);
 	float scale_ifft_range = 1 / static_cast<float>(paras.range_num_cut);
@@ -15,12 +15,30 @@ void mtrc(cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& han
 	cuComplex* d_st = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_st, sizeof(cuComplex) * paras.data_num_cut));
 	checkCudaErrors(cudaMemcpy(d_st, d_data, sizeof(cuComplex) * paras.data_num_cut, cudaMemcpyDeviceToDevice));
-	// ifftshift
-	ifftshiftRows << <dim3(((paras.range_num_cut / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_st, paras.range_num_cut);
-	checkCudaErrors(cudaDeviceSynchronize());
-	// ifft
-	checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c_cut, d_st, d_st, CUFFT_INVERSE));
-	checkCudaErrors(cublasCsscal(handles.handle, paras.data_num_cut, &scale_ifft_range, d_st, 1));
+
+	switch (data_type) {
+	case DATA_TYPE::IFDS: {
+		// ifftshift
+		ifftshiftRows << <dim3(((paras.range_num_cut / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_st, paras.range_num_cut);
+		checkCudaErrors(cudaDeviceSynchronize());
+		// fft
+		checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c_cut, d_st, d_st, CUFFT_FORWARD));
+
+		break;
+	}
+	case DATA_TYPE::STRETCH: {
+		// ifftshift
+		ifftshiftRows << <dim3(((paras.range_num_cut / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_st, paras.range_num_cut);
+		checkCudaErrors(cudaDeviceSynchronize());
+		// ifft
+		checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c_cut, d_st, d_st, CUFFT_INVERSE));
+		checkCudaErrors(cublasCsscal(handles.handle, paras.data_num_cut, &scale_ifft_range, d_st, 1));
+		
+		break;
+	}
+	default:
+		break;
+	}
 
 	// * CZT
 	// calculating w and a vector for each range
@@ -53,6 +71,10 @@ void mtrc(cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& han
 	// fftshift
 	ifftshiftCols << <dim3(paras.range_num_cut, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_czt, paras.echo_num);
 	checkCudaErrors(cudaDeviceSynchronize());
+
+	// [todo]
+	//S_key = fliplr(S_key);
+
 
 	// * Free allocated memory
 	checkCudaErrors(cudaFree(d_st));

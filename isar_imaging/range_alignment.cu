@@ -469,7 +469,7 @@ void HRRPCenter(cuComplex* d_data, const int& inter_length, const RadarParameter
 		checkCudaErrors(cudaDeviceSynchronize());
 
 		int mean_idx = thrust::reduce(thrust::device, idx_1.begin(), idx_1.end(), 0, thrust::plus<int>()) / (idx_1_len - idx_2_len);
-		int shift_num = -(mean_idx - static_cast<int>(paras.range_num / 2));  // todo: +1???
+		int shift_num = -(mean_idx - static_cast<int>(paras.range_num / 2));
 
 		// * circshift(d_data,[0, shiftnum])
 		circshiftFreq(d_data, paras.range_num, static_cast<float>(shift_num), paras.data_num, handles.handle, handles.plan_all_echo_c2c);

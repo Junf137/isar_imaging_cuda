@@ -9,8 +9,9 @@
 /// </summary>
 /// <param name="d_data"></param>
 /// <param name="paras"></param>
+/// <param name="data_type"></param>
 /// <param name="handles"></param>
-void mtrc(cuComplex* d_data, const RadarParameters& paras, const CUDAHandle& handles);
+void mtrc(cuComplex* d_data, const RadarParameters& paras, const DATA_TYPE& data_type, const CUDAHandle& handles);
 
 
 /// <summary>

@@ -183,7 +183,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 #endif // SEPARATE_TIMEING_
 
 		// * MTRC Correction
-		mtrc(d_data_cut, paras, handles);
+		mtrc(d_data_cut, paras, data_type, handles);
 
 #ifdef SEPARATE_TIMEING_
 		auto t_mtrc_2 = std::chrono::high_resolution_clock::now();
@@ -216,6 +216,10 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	// fftshift
 	ifftshiftCols << <dim3(paras.range_num_cut, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_data_cut, paras.echo_num);
 	checkCudaErrors(cudaDeviceSynchronize());
+
+	// [todo]
+	//ISARImageData = flipud(ISARImageData);
+
 
 	// * final img data
 	elementwiseAbs << <(paras.data_num_cut + block.x - 1) / block.x, block >> > (d_data_cut, d_img, paras.data_num_cut);
