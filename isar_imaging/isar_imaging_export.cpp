@@ -69,7 +69,7 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnA
         io.nonUniformSampling();
     }
 
-    io.getSignalData(dataW, d_data, d_velocity, paras, *dataNOut, frame_len, frame_num, *dataWFileSn);
+    io.getSignalData(dataW->data(), d_data, d_velocity, paras, *dataNOut, frame_len, frame_num, *dataWFileSn);
 
 #ifdef SEPARATE_TIMEING_
     auto t_data_extract_2 = std::chrono::high_resolution_clock::now();

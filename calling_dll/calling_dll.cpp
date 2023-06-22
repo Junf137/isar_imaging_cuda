@@ -54,20 +54,25 @@ int main()
     imagingMemInit(&img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len, data_type);
 
     // Sequential imaging process
-    for (int i = 0; i < 1; ++i) {
+    for (int i = 0; i < 10; ++i) {
+        auto t_imaging_1 = std::chrono::high_resolution_clock::now();
+
         // Data extracting
         dataExtracting(&dataWFileSn, &dataNOut, &turnAngleOut, &dataW, dataN, turnAngle, frame_len, frame_num, sampling_stride, window_head, window_len, data_type);
 
-        auto t_imaging_1 = std::chrono::high_resolution_clock::now();
+        auto t_imaging_2 = std::chrono::high_resolution_clock::now();
 
         // Single ISAR imaging process
         isarMainSingle(img.data(), data_type, option_alignment, option_phase, if_hpc, if_mtrc);
 
-        auto t_imaging_2 = std::chrono::high_resolution_clock::now();
-        printf("[img %2d] %3dms\n\n", i + 1, static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(t_imaging_2 - t_imaging_1).count()));
+        auto t_imaging_3 = std::chrono::high_resolution_clock::now();
+        printf("[img %2d] %3dms / %3dms\n\n", \
+            i + 1, \
+            static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(t_imaging_2 - t_imaging_1).count()), \
+            static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(t_imaging_3 - t_imaging_2).count()));
 
         // Write h_img data into file
-        writeFileFLT(dir_path + "\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), img.data(), window_len * 512);
+        //writeFileFLT(dir_path + "\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), img.data(), window_len * 512);
         
         window_head += imaging_stride;
     }

@@ -51,6 +51,7 @@
 #include <iomanip>
 #include <filesystem>
 #include <regex>
+#include <thread>
 
 
 typedef std::vector<int> vec1D_INT;
@@ -523,6 +524,50 @@ __global__ void setNumInArray(int* d_data, int* d_index, int val, int d_index_le
 void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, float* d_hamming, const RadarParameters& paras, const DATA_TYPE& data_type, const CUDAHandle& handles);
 
 
+/// <summary>
+/// Reading signal data from file and doing pulse compression in range dimension.
+/// store the result in d_data.
+/// (Function to be executed by each CPU thread)
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="dataAD"></param>
+/// <param name="dataIQ"></param>
+/// <param name="ifs_vec"></param>
+/// <param name="startIdx"></param>
+/// <param name="endIdx"></param>
+/// <param name="dataIQ_size"></param>
+/// <param name="dataAD_size"></param>
+/// <param name="frame_num"></param>
+/// <param name="frame_len"></param>
+/// <param name="paras"></param>
+/// <param name="dataWFileSn"></param>
+/// <param name="dataNOut"></param>
+void multiThreadIFDS(cuComplex* d_data, int16_t* dataAD, std::complex<float>* dataIQ, std::vector<std::ifstream>& ifs_vec, \
+	const int startIdx, const int endIdx, const int dataIQ_size, const int dataAD_size, const int frame_num, const int frame_len, \
+	const RadarParameters& paras, const vec1D_INT& dataWFileSn, const vec1D_DBL& dataNOut);
+
+
+/// <summary>
+/// Reading signal data from file and storing the result in d_data.
+/// (Function to be executed by each CPU thread)
+/// </summary>
+/// <param name="h_data"></param>
+/// <param name="d_data"></param>
+/// <param name="dataAD"></param>
+/// <param name="ifs_vec"></param>
+/// <param name="startIdx"></param>
+/// <param name="endIdx"></param>
+/// <param name="dataAD_size"></param>
+/// <param name="frame_num"></param>
+/// <param name="frame_len"></param>
+/// <param name="paras"></param>
+/// <param name="dataWFileSn"></param>
+/// <param name="dataNOut"></param>
+void multiThreadSTRETCH(std::complex<float>* h_data, cuComplex* d_data, int16_t* dataAD, std::vector<std::ifstream>& ifs_vec, \
+	const int startIdx, const int endIdx, const int dataAD_size, const int frame_num, const int frame_len, \
+	const RadarParameters& paras, const vec1D_INT& dataWFileSn, const vec1D_DBL& dataNOut);
+
+
 /* pulseCompression Class */
 class pulseCompression
 {
@@ -542,6 +587,29 @@ private:
 	cuComplex* d_ref;
 
 public:
+	/// <summary>
+	/// Default constructor;
+	/// </summary>
+	pulseCompression() = default;
+
+	/// <summary>
+	/// Constructor with all fields.
+	/// </summary>
+	/// <param name="m_NFFT"></param>
+	/// <param name="m_dataIQ_len"></param>
+	/// <param name="m_range_num_ifds_pc"></param>
+	/// <param name="m_paras"></param>
+	/// <param name="m_sampling_num"></param>
+	/// <param name="handle"></param>
+	/// <param name="plan_pc_echo_c2c"></param>
+	/// <param name="d_dataIQ"></param>
+	/// <param name="d_hamming"></param>
+	/// <param name="d_tk"></param>
+	/// <param name="d_ref"></param>
+	pulseCompression(int m_NFFT, int m_dataIQ_len, int m_range_num_ifds_pc, const RadarParameters& m_paras, int m_sampling_num, const cublasHandle_t& handle, const cufftHandle& plan_pc_echo_c2c, cuComplex* d_dataIQ, float* d_hamming, float* d_tk, cuComplex* d_ref)
+		: m_NFFT(m_NFFT), m_dataIQ_len(m_dataIQ_len), m_range_num_ifds_pc(m_range_num_ifds_pc), m_paras(m_paras), m_sampling_num(m_sampling_num), handle(handle), plan_pc_echo_c2c(plan_pc_echo_c2c), d_dataIQ(d_dataIQ), d_hamming(d_hamming), d_tk(d_tk), d_ref(d_ref)
+	{
+	}
 
 	/// <summary>
 	/// Constructor.
@@ -600,8 +668,8 @@ public:
 	/// <param name="m_file_vec"></param>
 	/// <param name="m_polar_type"></param>
 	/// <param name="m_data_type"></param>
-	ioOperation(const std::string& dir_path, const std::vector<std::string>& file_vec, POLAR_TYPE polar_type, DATA_TYPE data_type)
-		: m_dir_path(dir_path), m_file_vec(file_vec), m_polar_type(polar_type), m_data_type(data_type)
+	ioOperation(const std::string& m_dir_path, const std::vector<std::string>& m_file_vec, const POLAR_TYPE& m_polar_type, const DATA_TYPE& m_data_type)
+		: m_dir_path(m_dir_path), m_file_vec(m_file_vec), m_polar_type(m_polar_type), m_data_type(m_data_type)
 	{
 	}
 
@@ -683,7 +751,7 @@ public:
 	/// <summary>
 	/// 
 	/// </summary>
-	/// <param name="dataW"></param>
+	/// <param name="h_data"></param>
 	/// <param name="d_data"></param>
 	/// <param name="d_velocity"></param>
 	/// <param name="paras"></param>
@@ -692,7 +760,7 @@ public:
 	/// <param name="frame_num"></param>
 	/// <param name="dataWFileSn"></param>
 	/// <returns></returns>
-	int getSignalData(vec1D_COM_FLT* dataW, cuComplex* d_data, double* d_velocity, \
+	int getSignalData(std::complex<float>* h_data, cuComplex* d_data, double* d_velocity, \
 		const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const vec1D_INT& dataWFileSn);
 
 	/// <summary>

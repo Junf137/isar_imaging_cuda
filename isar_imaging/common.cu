@@ -550,6 +550,50 @@ void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, float* d_hamming, const Radar
 }
 
 
+void multiThreadIFDS(cuComplex* d_data, int16_t* dataAD, std::complex<float>* dataIQ, std::vector<std::ifstream>& ifs_vec, \
+	const int startIdx, const int endIdx, const int dataIQ_size, const int dataAD_size, const int frame_num, const int frame_len, \
+	const RadarParameters& paras, const vec1D_INT& dataWFileSn, const vec1D_DBL& dataNOut)
+{
+	// Initializing object of pulse compression for a single thread.
+	pulseCompression pc(nextPow2(dataIQ_size), dataIQ_size, RANGE_NUM_IFDS_PC, paras);
+
+	for (int i = startIdx; i < endIdx; ++i) {
+		int file_idx = dataWFileSn[i] / frame_num;
+
+		// Read data
+		ifs_vec[file_idx].seekg((dataWFileSn[i] - file_idx * frame_num) * frame_len + 256, std::ifstream::beg);
+		ifs_vec[file_idx].read((char*)dataAD, dataAD_size * sizeof(int16_t));
+
+		for (int j = 0; (j + 1) < dataAD_size; j += 2) {
+			dataIQ[j / 2] = std::complex<float>(static_cast<float>(dataAD[j]), static_cast<float>(dataAD[j + 1]));
+		}
+
+		// Pulse compression
+		pc.pulseCompressionbyFFT(d_data + i * RANGE_NUM_IFDS_PC, dataIQ, dataNOut[paras.echo_num + dataWFileSn[i]]);
+	}
+}
+
+
+void multiThreadSTRETCH(std::complex<float>* h_data, cuComplex* d_data, int16_t* dataAD, std::vector<std::ifstream>& ifs_vec, \
+	const int startIdx, const int endIdx, const int dataAD_size, const int frame_num, const int frame_len, \
+	const RadarParameters& paras, const vec1D_INT& dataWFileSn, const vec1D_DBL& dataNOut)
+{
+	for (int i = startIdx; i < endIdx; ++i) {
+		int file_idx = dataWFileSn[i] / frame_num;
+
+		ifs_vec[file_idx].seekg((dataWFileSn[i] - file_idx * frame_num) * frame_len + 256, std::ifstream::beg);
+		ifs_vec[file_idx].read((char*)dataAD, dataAD_size * sizeof(int16_t));
+
+		for (int j = 0; (j + 1) < dataAD_size; j += 2) {
+			h_data[i * paras.range_num + (j / 2)] = std::complex<float>(static_cast<float>(dataAD[j]), static_cast<float>(dataAD[j + 1]));
+		}
+
+		// transfer data(one echo) to device asynchronously
+		checkCudaErrors(cudaMemcpyAsync(d_data + i * paras.range_num, h_data + i * paras.range_num, sizeof(cuComplex) * paras.range_num, cudaMemcpyHostToDevice));
+	}
+}
+
+
 /// <summary>
 /// 
 /// </summary>
@@ -1006,7 +1050,7 @@ float ioOperation::interpolate(const vec1D_INT& xData, const vec1D_FLT& yData, c
 }
 
 
-int ioOperation::getSignalData(vec1D_COM_FLT* dataW, cuComplex* d_data, double* d_velocity, \
+int ioOperation::getSignalData(std::complex<float>* h_data, cuComplex* d_data, double* d_velocity, \
 	const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const vec1D_INT& dataWFileSn)
 {
 	std::vector<std::ifstream> ifs_vec(m_file_vec.size());
@@ -1018,55 +1062,55 @@ int ioOperation::getSignalData(vec1D_COM_FLT* dataW, cuComplex* d_data, double* 
 		}
 	}
 
-	int frame_num_total = frame_num * static_cast<int>(m_file_vec.size());
-
-	int dataAD_size = (frame_len - 256) / 2;
-	int16_t* dataAD = new int16_t[dataAD_size];
-
-	int file_idx = 0;  // file need to read
-
 	switch (m_data_type) {
 	case DATA_TYPE::IFDS: {
-		// In IFDS mode, read each pulse data and write it to dataIQ before pulse compression operation.
+		// Split the workload among CPU threads
+		int numThreads = 8;
+		int subsetSize = paras.echo_num / numThreads;
+
+		// Create a vector to hold the CPU threads
+		std::vector<std::thread> threads(numThreads);
+
+		// Create dataAD and dataIQ arrays for each thread to avoid data races
+		int dataAD_size = (frame_len - 256) / 2;
 		int dataIQ_size = dataAD_size / 2;
-		std::complex<float>* dataIQ = new std::complex<float>[dataIQ_size];
-		
-		// Initializing object of pulse compression for a single thread.
-		pulseCompression pc(nextPow2(dataIQ_size), dataIQ_size, RANGE_NUM_IFDS_PC, paras);
 
-		for (int i = 0; i < paras.echo_num; ++i) {
-			file_idx = dataWFileSn[i] / frame_num;
-
-			// Read data
-			auto t_data_1 = std::chrono::high_resolution_clock::now();
-			ifs_vec[file_idx].seekg((dataWFileSn[i] - file_idx * frame_num) * frame_len + 256, std::ifstream::beg);
-			ifs_vec[file_idx].read((char*)dataAD, dataAD_size * sizeof(int16_t));
-
-			auto t_data_2 = std::chrono::high_resolution_clock::now();
-			
-			// [todo] using vector
-			for (int j = 0; (j + 1) < dataAD_size; j += 2) {
-				dataIQ[j / 2] = std::complex<float>(static_cast<float>(dataAD[j]), static_cast<float>(dataAD[j + 1]));
-			}
-			auto t_data_3 = std::chrono::high_resolution_clock::now();
-
-			// Pulse compression
-			auto t_pc_1 = std::chrono::high_resolution_clock::now();
-			pc.pulseCompressionbyFFT(d_data + i * RANGE_NUM_IFDS_PC, dataIQ, dataNOut[paras.echo_num + dataWFileSn[i]]);
-			auto t_pc_2 = std::chrono::high_resolution_clock::now();
-
-			std::cout << "[Pulse index] " << i + 1 << "\n";
-			std::cout << "Read data time: " << std::chrono::duration_cast<std::chrono::milliseconds>(t_data_2 - t_data_1).count() << " ms" << std::endl;
-			std::cout << "Reconstruct data time: " << std::chrono::duration_cast<std::chrono::milliseconds>(t_data_3 - t_data_2).count() << " ms" << std::endl;
-			std::cout << "Pulse compression time: " << std::chrono::duration_cast<std::chrono::milliseconds>(t_pc_2 - t_pc_1).count() << " ms" << std::endl;
+		std::vector<int16_t*> dataADThreads(numThreads);
+		std::vector<std::complex<float>*> dataIQThreads(numThreads);
+		for (int t = 0; t < numThreads; ++t) {
+			dataADThreads[t] = new int16_t[dataAD_size];
+			dataIQThreads[t] = new std::complex<float>[dataIQ_size];
 		}
-		delete[] dataIQ;
-		dataIQ = nullptr;
+
+		// Launch the CPU threads
+		for (int t = 0; t < numThreads; ++t) {
+			int startIdx = t * subsetSize;
+			int endIdx = (t == numThreads - 1) ? paras.echo_num : (startIdx + subsetSize);
+
+			threads[t] = std::thread(multiThreadIFDS, d_data, dataADThreads[t], dataIQThreads[t], std::ref(ifs_vec), \
+				startIdx, endIdx, dataIQ_size, dataAD_size, frame_num, frame_len, \
+				std::ref(paras), std::ref(dataWFileSn), std::ref(dataNOut));
+		}
+
+		// Wait for all the threads to finish
+		for (int t = 0; t < numThreads; ++t) {
+			threads[t].join();
+		}
+
+		// Clean up the dynamically allocated arrays
+		for (int t = 0; t < numThreads; ++t) {
+			delete[] dataADThreads[t];
+			delete[] dataIQThreads[t];
+		}
 
 		break;
 	}
 	case DATA_TYPE::STRETCH: {
-		// In STERTCH mode, read all pulse data and write it to dataW for imaging process
+		int dataAD_size = (frame_len - 256) / 2;
+		int16_t* dataAD = new int16_t[dataAD_size];
+
+		int file_idx = 0;  // file need to read
+
 		for (int i = 0; i < paras.echo_num; ++i) {
 			file_idx = dataWFileSn[i] / frame_num;
 
@@ -1074,15 +1118,53 @@ int ioOperation::getSignalData(vec1D_COM_FLT* dataW, cuComplex* d_data, double* 
 			ifs_vec[file_idx].read((char*)dataAD, dataAD_size * sizeof(int16_t));
 
 			for (int j = 0; (j + 1) < dataAD_size; j += 2) {
-				dataW->at(i * (dataAD_size / 2) + (j / 2)) = std::complex<float>(static_cast<float>(dataAD[j]), static_cast<float>(dataAD[j + 1]));
+				h_data[i * (dataAD_size / 2) + (j / 2)] = std::complex<float>(static_cast<float>(dataAD[j]), static_cast<float>(dataAD[j + 1]));
 			}
 		}
 
 		// d_data (host -> device)
-		std::complex<float>* h_data = dataW->data();
 		checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(cuComplex) * paras.data_num, cudaMemcpyHostToDevice));
 
 		break;
+
+		// multi-thread version
+		// [todo] slower than single thread version ???
+		/*// Split the workload among CPU threads
+		int numThreads = 8;
+		int subsetSize = paras.echo_num / numThreads;
+
+		// Create a vector to hold the CPU threads
+		std::vector<std::thread> threads(numThreads);
+
+		// Create dataAD arrays for each thread to avoid data races
+		int dataAD_size = (frame_len - 256) / 2;
+
+		std::vector<int16_t*> dataADThreads(numThreads);
+		for (int t = 0; t < numThreads; ++t) {
+			dataADThreads[t] = new int16_t[dataAD_size];
+		}
+
+		// Launch the CPU threads
+		for (int t = 0; t < numThreads; ++t) {
+			int startIdx = t * subsetSize;
+			int endIdx = (t == numThreads - 1) ? paras.echo_num : (startIdx + subsetSize);
+
+			threads[t] = std::thread(multiThreadSTRETCH, h_data, d_data, dataADThreads[t], std::ref(ifs_vec), \
+				startIdx, endIdx, dataAD_size, frame_num, frame_len, \
+				std::ref(paras), std::ref(dataWFileSn), std::ref(dataNOut));
+		}
+
+		// Wait for all the threads to finish
+		for (int t = 0; t < numThreads; ++t) {
+			threads[t].join();
+		}
+
+		// Clean up the dynamically allocated arrays
+		for (int t = 0; t < numThreads; ++t) {
+			delete[] dataADThreads[t];
+		}
+
+		break;*/
 	}
 	default:
 		break;
@@ -1091,10 +1173,7 @@ int ioOperation::getSignalData(vec1D_COM_FLT* dataW, cuComplex* d_data, double* 
 	// Transfer Velocity Data(host to device)
 	checkCudaErrors(cudaMemcpy(d_velocity, dataNOut.data() + paras.echo_num, sizeof(double) * paras.echo_num, cudaMemcpyHostToDevice));
 
-	delete[] dataAD;
-	dataAD = nullptr;
-
-
+	// close file
 	for (int i = 0; i < m_file_vec.size(); ++i) {
 		ifs_vec[i].close();
 	}
