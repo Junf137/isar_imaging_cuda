@@ -228,13 +228,8 @@ void sumRowsTime(int rows, int cols)
 
 int main(int argc, char** argv)
 {
-    int16_t arr[6] = { 1,2,3,4,5,6 };
 
-    std::vector<float> vec(arr, arr + 6);
-
-    for (auto it : vec) {
-        std::cout << it << std::endl;
-    }
+    std::cout << sizeof(cuComplex) << std::endl;
 
 
     // cufftTime

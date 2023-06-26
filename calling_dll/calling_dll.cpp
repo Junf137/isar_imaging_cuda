@@ -58,7 +58,7 @@ int main()
         auto t_imaging_1 = std::chrono::high_resolution_clock::now();
 
         // Data extracting
-        dataExtracting(&dataWFileSn, &dataNOut, &turnAngleOut, &dataW, dataN, turnAngle, frame_len, frame_num, sampling_stride, window_head, window_len, data_type);
+        dataExtracting(&dataWFileSn, &dataNOut, &turnAngleOut, &dataW, dataN, turnAngle, frame_len, frame_num, sampling_stride, window_head, window_len, imaging_stride, data_type);
 
         auto t_imaging_2 = std::chrono::high_resolution_clock::now();
 

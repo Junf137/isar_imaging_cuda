@@ -67,10 +67,11 @@ extern "C" DLL_EXPORT_API int dataParsing(vec1D_DBL * dataN, vec1D_FLT * turnAng
 /// <param name="sampling_stride"></param>
 /// <param name="window_head"></param>
 /// <param name="window_len"></param>
+/// <param name="imaging_stride"></param>
 /// <param name="data_type"></param>
 /// <returns></returns>
 extern "C" DLL_EXPORT_API int dataExtracting(vec1D_INT * dataWFileSn, vec1D_DBL * dataNOut, vec1D_FLT * turnAngleOut, vec1D_COM_FLT * dataW, \
-	const vec1D_DBL & dataN, const vec1D_FLT & turnAngle, const int& frame_len, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len, const int& data_type);
+	const vec1D_DBL & dataN, const vec1D_FLT & turnAngle, const int& frame_len, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len, int& imaging_stride, const int& data_type);
 
 
 /// <summary>

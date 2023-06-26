@@ -1050,8 +1050,8 @@ float ioOperation::interpolate(const vec1D_INT& xData, const vec1D_FLT& yData, c
 }
 
 
-int ioOperation::getSignalData(std::complex<float>* h_data, cuComplex* d_data, double* d_velocity, \
-	const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const vec1D_INT& dataWFileSn)
+int ioOperation::getSignalData(std::complex<float>* h_data, cuComplex* d_data, cuComplex* d_data_old, cuComplex* d_data_proc, double* d_velocity, \
+	const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const int& overlap_len, const vec1D_INT& dataWFileSn)
 {
 	std::vector<std::ifstream> ifs_vec(m_file_vec.size());
 	for (int i = 0; i < m_file_vec.size(); ++i) {
@@ -1062,11 +1062,18 @@ int ioOperation::getSignalData(std::complex<float>* h_data, cuComplex* d_data, d
 		}
 	}
 
+	int new_len = paras.echo_num - overlap_len;
+
+	// moving overlap data from d_data_old to d_data
+	if (overlap_len != 0) {
+		checkCudaErrors(cudaMemcpy(d_data, d_data_old + new_len * paras.range_num, sizeof(cuComplex) * overlap_len * paras.range_num, cudaMemcpyDeviceToDevice));
+	}
+
 	switch (m_data_type) {
 	case DATA_TYPE::IFDS: {
 		// Split the workload among CPU threads
-		int numThreads = 8;
-		int subsetSize = paras.echo_num / numThreads;
+		int numThreads = MIN(new_len, DEFAULT_CPU_THREAD_NUM);
+		int subsetSize = new_len / numThreads;
 
 		// Create a vector to hold the CPU threads
 		std::vector<std::thread> threads(numThreads);
@@ -1084,7 +1091,7 @@ int ioOperation::getSignalData(std::complex<float>* h_data, cuComplex* d_data, d
 
 		// Launch the CPU threads
 		for (int t = 0; t < numThreads; ++t) {
-			int startIdx = t * subsetSize;
+			int startIdx = t * subsetSize + overlap_len;
 			int endIdx = (t == numThreads - 1) ? paras.echo_num : (startIdx + subsetSize);
 
 			threads[t] = std::thread(multiThreadIFDS, d_data, dataADThreads[t], dataIQThreads[t], std::ref(ifs_vec), \
@@ -1111,19 +1118,19 @@ int ioOperation::getSignalData(std::complex<float>* h_data, cuComplex* d_data, d
 
 		int file_idx = 0;  // file need to read
 
-		for (int i = 0; i < paras.echo_num; ++i) {
+		for (int i = overlap_len; i < paras.echo_num; ++i) {
 			file_idx = dataWFileSn[i] / frame_num;
 
 			ifs_vec[file_idx].seekg((dataWFileSn[i] - file_idx * frame_num) * frame_len + 256, std::ifstream::beg);
 			ifs_vec[file_idx].read((char*)dataAD, dataAD_size * sizeof(int16_t));
 
 			for (int j = 0; (j + 1) < dataAD_size; j += 2) {
-				h_data[i * (dataAD_size / 2) + (j / 2)] = std::complex<float>(static_cast<float>(dataAD[j]), static_cast<float>(dataAD[j + 1]));
+				h_data[i * paras.range_num + (j / 2)] = std::complex<float>(static_cast<float>(dataAD[j]), static_cast<float>(dataAD[j + 1]));
 			}
 		}
 
 		// d_data (host -> device)
-		checkCudaErrors(cudaMemcpy(d_data, h_data, sizeof(cuComplex) * paras.data_num, cudaMemcpyHostToDevice));
+		checkCudaErrors(cudaMemcpy(d_data + overlap_len * paras.range_num, h_data + overlap_len * paras.range_num, sizeof(cuComplex) * new_len * paras.range_num, cudaMemcpyHostToDevice));
 
 		break;
 
@@ -1169,6 +1176,9 @@ int ioOperation::getSignalData(std::complex<float>* h_data, cuComplex* d_data, d
 	default:
 		break;
 	}
+
+	// d_data -> d_data_proc
+	checkCudaErrors(cudaMemcpy(d_data_proc, d_data, sizeof(cuComplex)* paras.data_num, cudaMemcpyDeviceToDevice));
 
 	// Transfer Velocity Data(host to device)
 	checkCudaErrors(cudaMemcpy(d_velocity, dataNOut.data() + paras.echo_num, sizeof(double) * paras.echo_num, cudaMemcpyHostToDevice));

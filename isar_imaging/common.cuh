@@ -73,6 +73,7 @@ constexpr auto RANGE_NUM_IFDS_PC = 4096;
 constexpr auto FAST_ENTROPY_ITERATION_NUM = 120;
 constexpr auto MAX_THREAD_PER_BLOCK = 1024;
 constexpr auto DEFAULT_THREAD_PER_BLOCK = 256;
+constexpr auto DEFAULT_CPU_THREAD_NUM = 8;
 
 
 namespace fs = std::filesystem;
@@ -753,15 +754,18 @@ public:
 	/// </summary>
 	/// <param name="h_data"></param>
 	/// <param name="d_data"></param>
+	/// <param name="d_data_old"></param>
+	/// <param name="d_data_proc"></param>
 	/// <param name="d_velocity"></param>
 	/// <param name="paras"></param>
 	/// <param name="dataNOut"></param>
 	/// <param name="frame_len"></param>
 	/// <param name="frame_num"></param>
+	/// <param name="overlap_len"></param>
 	/// <param name="dataWFileSn"></param>
 	/// <returns></returns>
-	int getSignalData(std::complex<float>* h_data, cuComplex* d_data, double* d_velocity, \
-		const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const vec1D_INT& dataWFileSn);
+	int getSignalData(std::complex<float>* h_data, cuComplex* d_data, cuComplex* d_data_old, cuComplex* d_data_proc, double* d_velocity, \
+		const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const int& overlap_len, const vec1D_INT& dataWFileSn);
 
 	/// <summary>
 	/// 

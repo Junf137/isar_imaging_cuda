@@ -9,6 +9,9 @@ RadarParameters paras{};
 CUDAHandle handles;
 
 cuComplex* d_data;
+cuComplex* d_data_pp_1;
+cuComplex* d_data_pp_2;
+cuComplex* d_data_proc;
 cuComplex* d_data_cut;
 double* d_velocity;
 float* d_hamming;
@@ -54,7 +57,7 @@ int dataParsing(vec1D_DBL* dataN, vec1D_FLT* turnAngle, int* frame_len, int* fra
 
 
 int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
-    const vec1D_DBL& dataN, const vec1D_FLT& turnAngle, const int& frame_len, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len, const int& data_type)
+    const vec1D_DBL& dataN, const vec1D_FLT& turnAngle, const int& frame_len, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len, int& imaging_stride, const int& data_type)
 {
 #ifdef SEPARATE_TIMEING_
     std::cout << "---* Starting Data Extracting *---\n";
@@ -69,7 +72,26 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnA
         io.nonUniformSampling();
     }
 
-    io.getSignalData(dataW->data(), d_data, d_velocity, paras, *dataNOut, frame_len, frame_num, *dataWFileSn);
+    cuComplex* d_data_old = nullptr;
+    int overlap_len = 0;
+
+    if (d_data == nullptr) {
+        d_data = d_data_pp_1;
+        d_data_old = nullptr;
+        overlap_len = 0;
+    }
+    else if (d_data == d_data_pp_1) {
+        d_data = d_data_pp_2;
+        d_data_old = d_data_pp_1;
+        overlap_len = paras.echo_num - imaging_stride;
+    }
+    else if (d_data == d_data_pp_2) {
+        d_data = d_data_pp_1;
+        d_data_old = d_data_pp_2;
+        overlap_len = paras.echo_num - imaging_stride;
+    }
+
+    io.getSignalData(dataW->data(), d_data, d_data_old, d_data_proc, d_velocity, paras, *dataNOut, frame_len, frame_num, overlap_len, *dataWFileSn);
 
 #ifdef SEPARATE_TIMEING_
     auto t_data_extract_2 = std::chrono::high_resolution_clock::now();
@@ -126,7 +148,10 @@ void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOu
     
     handles.handleInit(paras.echo_num, paras.range_num);
 
-    checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * paras.data_num));
+    d_data = nullptr;
+    checkCudaErrors(cudaMalloc((void**)&d_data_pp_1, sizeof(cuComplex) * paras.data_num));
+    checkCudaErrors(cudaMalloc((void**)&d_data_pp_2, sizeof(cuComplex) * paras.data_num));
+    checkCudaErrors(cudaMalloc((void**)&d_data_proc, sizeof(cuComplex) * paras.data_num));
     checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * paras.range_num_cut));
     checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
     checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
@@ -149,7 +174,7 @@ void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOu
 void isarMainSingle(float* h_img, \
     const int& data_type, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
 {
-    ISAR_RD_Imaging_Main_Ku(h_img, d_data, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, static_cast<DATA_TYPE>(data_type), option_alignment, option_phase, if_hpc, if_mtrc);
+    ISAR_RD_Imaging_Main_Ku(h_img, d_data_proc, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, static_cast<DATA_TYPE>(data_type), option_alignment, option_phase, if_hpc, if_mtrc);
 }
 
 
@@ -165,7 +190,9 @@ void imagingMemDest()
     handles.handleDest();
 
     // free allocated memory using cudaMalloc
-    checkCudaErrors(cudaFree(d_data));
+    checkCudaErrors(cudaFree(d_data_pp_1));
+    checkCudaErrors(cudaFree(d_data_pp_2));
+    checkCudaErrors(cudaFree(d_data_proc));
     checkCudaErrors(cudaFree(d_data_cut));
     checkCudaErrors(cudaFree(d_velocity));
     checkCudaErrors(cudaFree(d_hamming));
@@ -173,6 +200,9 @@ void imagingMemDest()
     checkCudaErrors(cudaFree(d_hamming_echoes));
     checkCudaErrors(cudaFree(d_img));
     d_data = nullptr;
+    d_data_pp_1 = nullptr;
+    d_data_pp_2 = nullptr;
+    d_data_proc = nullptr;
     d_data_cut = nullptr;
     d_velocity = nullptr;
     d_hamming = nullptr;
