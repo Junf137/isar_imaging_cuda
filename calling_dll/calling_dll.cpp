@@ -28,6 +28,7 @@ int main()
     int data_type = static_cast<int>((dir_path.find("210425235341_047414_1383_00") == std::string::npos) ? DATA_TYPE::IFDS : DATA_TYPE::STRETCH);
     int option_alignment = 0;
     int option_phase = 1;
+    bool if_hrrp = false;
     bool if_hpc = true;
     bool if_mtrc = true;
 
@@ -51,10 +52,14 @@ int main()
     dataParsing(&dataN, &turnAngle, &frame_len, &frame_num, dir_path, polar_type, data_type);
 
     // Data initialization
-    imagingMemInit(&img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len, data_type);
+    imagingMemInit(&img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len, data_type, if_hrrp);
 
     // Sequential imaging process
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 30; ++i) {
+        if (data_type == static_cast<int>(DATA_TYPE::IFDS)) {
+            window_head = (window_head == 50) ? 0 : window_head;
+        }
+
         auto t_imaging_1 = std::chrono::high_resolution_clock::now();
 
         // Data extracting
@@ -63,7 +68,7 @@ int main()
         auto t_imaging_2 = std::chrono::high_resolution_clock::now();
 
         // Single ISAR imaging process
-        isarMainSingle(img.data(), data_type, option_alignment, option_phase, if_hpc, if_mtrc);
+        isarMainSingle(img.data(), data_type, option_alignment, option_phase, if_hrrp, if_hpc, if_mtrc);
 
         auto t_imaging_3 = std::chrono::high_resolution_clock::now();
         printf("[img %2d] %3dms / %3dms\n\n", \
@@ -78,7 +83,7 @@ int main()
     }
 
     // * Free allocated memory
-    imagingMemDest();
+    imagingMemDest(if_hrrp);
 
     return 0;
 }

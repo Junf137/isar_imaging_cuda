@@ -1,7 +1,7 @@
 ﻿#include "isar_main.cuh"
 
 int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_cut, double* d_velocity, float* d_hamming, cuComplex* d_hrrp, float* d_hamming_echoes, float* d_img, \
-	const RadarParameters& paras, const CUDAHandle& handles, const DATA_TYPE& data_type, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
+	const RadarParameters& paras, const CUDAHandle& handles, const DATA_TYPE& data_type, const int& option_alignment, const int& option_phase, const bool& if_hrrp, const bool& if_hpc, const bool& if_mtrc)
 {
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);
 	float scale_ifft = 1.0f / static_cast<float>(paras.range_num);
@@ -56,25 +56,27 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	/******************
 	 * HRRP
 	 ******************/
+	if (if_hrrp == true) {
 #ifdef SEPARATE_TIMEING_
-	std::cout << "---* Starting Get HRRP *---\n";
-	auto t_hrrp_1 = std::chrono::high_resolution_clock::now();
+		std::cout << "---* Starting Get HRRP *---\n";
+		auto t_hrrp_1 = std::chrono::high_resolution_clock::now();
 #endif // SEPARATE_TIMEING_
 
-	// * HRRP - High Resolution Range Profile.
-	getHRRP(d_hrrp, d_data, d_hamming, paras, data_type, handles);
+		// * HRRP - High Resolution Range Profile.
+		getHRRP(d_hrrp, d_data, d_hamming, paras, data_type, handles);
 
 #ifdef SEPARATE_TIMEING_
-	auto t_hrrp_2 = std::chrono::high_resolution_clock::now();
-	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(t_hrrp_2 - t_hrrp_1).count() << "ms\n";
-	std::cout << "---* Get HRRP Over *---\n";
-	std::cout << "************************************\n\n";
+		auto t_hrrp_2 = std::chrono::high_resolution_clock::now();
+		std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(t_hrrp_2 - t_hrrp_1).count() << "ms\n";
+		std::cout << "---* Get HRRP Over *---\n";
+		std::cout << "************************************\n\n";
 #endif // SEPARATE_TIMEING_
 
 
 #ifdef DATA_WRITE_BACK_HRRP
-	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "hrrp.dat", d_hrrp, paras.data_num);
+		ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "hrrp.dat", d_hrrp, paras.data_num);
 #endif // DATA_WRITE_BACK_HRRP
+	}
 
 
 	/******************

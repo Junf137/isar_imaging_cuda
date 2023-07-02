@@ -274,6 +274,16 @@ void getMin(cublasHandle_t handle, float* d_vec, int len, int* min_idx, float* m
 
 
 /// <summary>
+/// Copy device data back to host and display
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="rows"></param>
+/// <param name="cols"></param>
+void dDataDisp(float* d_data, int rows, int cols);
+void dDataDisp(cuComplex* d_data, int rows, int cols);
+
+
+/// <summary>
 /// 
 /// </summary>
 /// <param name="a"></param>

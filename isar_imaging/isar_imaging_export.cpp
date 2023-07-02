@@ -104,8 +104,8 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnA
 }
 
 
-void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
-    const int& window_len, const int& frame_len, const int& data_type)
+void imagingMemInit(vec1D_FLT* img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
+    const int& window_len, const int& frame_len, const int& data_type, const bool& if_hrrp)
 {
 #ifdef SEPARATE_TIMEING_
     std::cout << "---* Starting GPU Memory Initialization *---\n";
@@ -140,11 +140,13 @@ void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOu
         return;
     }
 
-    h_img->resize(paras.echo_num * paras.range_num_cut);
+    img->resize(paras.echo_num * paras.range_num_cut);
     dataWFileSn->resize(paras.echo_num);
     dataNOut->resize(paras.echo_num * 4);
     turnAngleOut->resize(paras.echo_num);
-    dataW->resize(paras.data_num);
+    if (data_type == static_cast<int>(DATA_TYPE::STRETCH)) {
+        dataW->resize(paras.data_num);
+    }
     
     handles.handleInit(paras.echo_num, paras.range_num);
 
@@ -155,7 +157,9 @@ void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOu
     checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * paras.range_num_cut));
     checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
     checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
-    checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
+    if (if_hrrp == true) {
+        checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
+    }
     checkCudaErrors(cudaMalloc((void**)&d_hamming_echoes, sizeof(float) * paras.echo_num));
     checkCudaErrors(cudaMalloc((void**)&d_img, sizeof(float) * paras.echo_num * paras.range_num_cut));
 
@@ -172,9 +176,9 @@ void imagingMemInit(vec1D_FLT* h_img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOu
 
 
 void isarMainSingle(float* h_img, \
-    const int& data_type, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc)
+    const int& data_type, const int& option_alignment, const int& option_phase, const bool& if_hrrp, const bool& if_hpc, const bool& if_mtrc)
 {
-    ISAR_RD_Imaging_Main_Ku(h_img, d_data_proc, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, static_cast<DATA_TYPE>(data_type), option_alignment, option_phase, if_hpc, if_mtrc);
+    ISAR_RD_Imaging_Main_Ku(h_img, d_data_proc, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, static_cast<DATA_TYPE>(data_type), option_alignment, option_phase, if_hrrp, if_hpc, if_mtrc);
 }
 
 
@@ -184,7 +188,7 @@ void writeFileFLT(const std::string& outFilePath, const float* data, const  size
 }
 
 
-void imagingMemDest()
+void imagingMemDest(const bool& if_hrrp)
 {
     // free cuFFT handle
     handles.handleDest();
@@ -196,7 +200,10 @@ void imagingMemDest()
     checkCudaErrors(cudaFree(d_data_cut));
     checkCudaErrors(cudaFree(d_velocity));
     checkCudaErrors(cudaFree(d_hamming));
-    checkCudaErrors(cudaFree(d_hrrp));
+    if (if_hrrp == true) {
+        checkCudaErrors(cudaFree(d_hrrp));
+        d_hrrp = nullptr;
+    }
     checkCudaErrors(cudaFree(d_hamming_echoes));
     checkCudaErrors(cudaFree(d_img));
     d_data = nullptr;
@@ -206,83 +213,6 @@ void imagingMemDest()
     d_data_cut = nullptr;
     d_velocity = nullptr;
     d_hamming = nullptr;
-    d_hrrp = nullptr;
     d_hamming_echoes = nullptr;
     d_img = nullptr;
 }
-
-
-/******************
- * API for Simulation Data
- ******************/
-
-//void parasInit(float** h_img, \
-//    const int& echo_num, const int& range_num, const long long& band_width, const long long& fc, const int& Fs, const double& Tp)
-//{
-//#ifdef SEPARATE_TIMEING_
-//    std::cout << "---* Starting GPU Memory Initialization *---\n";
-//    auto t_init_gpu_1 = std::chrono::high_resolution_clock::now();
-//#endif // SEPARATE_TIMEING_
-//
-//    paras.echo_num = echo_num;
-//    paras.range_num = range_num;
-//    paras.data_num = paras.echo_num * paras.range_num;
-//    if (paras.echo_num > MAX_THREAD_PER_BLOCK) {
-//        std::cout << "[main/WARN] echo_num > MAX_THREAD_PER_BLOCK: " << MAX_THREAD_PER_BLOCK << ", please double-check the data, then reconfiguring the parameters." << std::endl;
-//        return;
-//    }
-//    if (paras.range_num < RANGE_NUM_CUT) {
-//        std::cout << "[main/WARN] range_num < RANGE_NUM_CUT: " << RANGE_NUM_CUT << ", please double-check the data or optimize process of cutRangeProfile()." << std::endl;
-//        return;
-//    }
-//    if (paras.range_num < paras.echo_num) {
-//        std::cout << "[main/WARN] range_num < echo_num, please double-check the data." << std::endl;
-//        return;
-//    }
-//
-//
-//    handles.handleInit(paras.echo_num, paras.range_num);
-//    *h_img = new float[paras.echo_num * RANGE_NUM_CUT];
-//
-//    paras.band_width = band_width;
-//    paras.fc = fc;
-//    paras.Fs = Fs;
-//    paras.Tp = Tp;
-//
-//    checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * paras.data_num));
-//    checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * RANGE_NUM_CUT));
-//    checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
-//    checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
-//    checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
-//    checkCudaErrors(cudaMalloc((void**)&d_hamming_echoes, sizeof(float) * paras.echo_num));
-//    checkCudaErrors(cudaMalloc((void**)&d_img, sizeof(float) * paras.echo_num * RANGE_NUM_CUT));
-//
-//#ifdef SEPARATE_TIMEING_
-//    auto t_init_gpu_2 = std::chrono::high_resolution_clock::now();
-//    std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(t_init_gpu_2 - t_init_gpu_1).count() << "ms\n";
-//    std::cout << "---* GPU Memory Initialization Over *---\n";
-//    std::cout << "************************************\n\n";
-//#endif // SEPARATE_TIMEING_
-//}
-
-
-//void sim_data_extract(std::complex<float>* h_data, std::vector<std::vector<double>>* dataNOut, \
-//    const char* info_mat, const char* real_mat, const char* imag_mat)
-//{
-//    h_data = new std::complex<float>[paras.data_num];
-//
-//    // * Extracting real and imag data from real_mat and imag_mat
-//    // Open the mat file
-//    MATFile* p_mat_real = matOpen(real_mat, "r");
-//    MATFile* p_mat_imag = matOpen(imag_mat, "r");
-//    if (!p_mat_real || !p_mat_imag) {
-//        std::cerr << "Error opening mat file" << std::endl;
-//    }
-//
-//    // Get variable
-//    mxArray* p_mx_real = matGetVariable(p_mat_real, "real");
-//    mxArray* p_mx_imag = matGetVariable(p_mat_imag, "imag");
-//    if (!p_mx_real || !p_mx_imag) {
-//        std::cerr << "Error reading array from mat file" << std::endl;
-//    }
-//}

@@ -78,7 +78,7 @@ extern "C" DLL_EXPORT_API int dataExtracting(vec1D_INT * dataWFileSn, vec1D_DBL 
 /// Initializing CPU and GPU memory.
 /// This function should be called only once for any file.
 /// </summary>
-/// <param name="h_img"></param>
+/// <param name="img"></param>
 /// <param name="dataWFileSn"></param>
 /// <param name="dataNOut"></param>
 /// <param name="turnAngleOut"></param>
@@ -86,9 +86,10 @@ extern "C" DLL_EXPORT_API int dataExtracting(vec1D_INT * dataWFileSn, vec1D_DBL 
 /// <param name="window_len"></param>
 /// <param name="frame_len"></param>
 /// <param name="data_type"></param>
+/// <param name="if_hrrp"></param>
 /// <returns></returns>
-extern "C" DLL_EXPORT_API void imagingMemInit(vec1D_FLT * h_img, vec1D_INT * dataWFileSn, vec1D_DBL * dataNOut, vec1D_FLT * turnAngleOut, vec1D_COM_FLT * dataW, \
-	const int& window_len, const int& frame_len, const int& data_type);
+extern "C" DLL_EXPORT_API void imagingMemInit(vec1D_FLT * img, vec1D_INT * dataWFileSn, vec1D_DBL * dataNOut, vec1D_FLT * turnAngleOut, vec1D_COM_FLT * dataW, \
+	const int& window_len, const int& frame_len, const int& data_type, const bool& if_hrrp);
 
 
 /// <summary>
@@ -99,11 +100,12 @@ extern "C" DLL_EXPORT_API void imagingMemInit(vec1D_FLT * h_img, vec1D_INT * dat
 /// <param name="data_type"></param>
 /// <param name="option_alignment"></param>
 /// <param name="option_phase"></param>
+/// <param name="if_hrrp"></param>
 /// <param name="if_hpc"></param>
 /// <param name="if_mtrc"></param>
 /// <returns></returns>
 extern "C" DLL_EXPORT_API void isarMainSingle(float* h_img, \
-	const int& data_type, const int& option_alignment, const int& option_phase, const bool& if_hpc, const bool& if_mtrc);
+	const int& data_type, const int& option_alignment, const int& option_phase, const bool& if_hrrp, const bool& if_hpc, const bool& if_mtrc);
 
 
 /// <summary>
@@ -120,38 +122,10 @@ extern "C" DLL_EXPORT_API void writeFileFLT(const std::string& outFilePath, cons
 /// Free allocated memory in CPU and GPU.
 /// Destroy pointer.
 /// </summary>
+/// <param name="if_hrrp"></param>
 /// <returns></returns>
-extern "C" DLL_EXPORT_API void imagingMemDest();
+extern "C" DLL_EXPORT_API void imagingMemDest(const bool& if_hrrp);
 
-
-/******************
- * API for Simulation Data
- ******************/
-
-/// <summary>
-/// Initializing parameters for ISAR imaging.
-/// </summary>
-/// <param name="h_img"> nullptr required </param>
-/// <param name="echo_num"> echo number in slow time </param>
-/// <param name="range_num"> range number in fast time </param>
-/// <param name="band_width"> </param>
-/// <param name="fc"> </param>
-/// <param name="Fs"> </param>
-/// <param name="Tp"> </param>
-//extern "C" DLL_EXPORT_API void parasInit(float** h_img, \
-//	const int& echo_num, const int& range_num, const long long& band_width, const long long& fc, const int& Fs, const double& Tp);
-
-
-/// <summary>
-/// 
-/// </summary>
-/// <param name="h_data"></param>
-/// <param name="dataNOut"></param>
-/// <param name="info_mat"></param>
-/// <param name="real_mat"></param>
-/// <param name="imag_mat"></param>
-//void sim_data_extract(std::complex<float>* h_data, std::vector<std::vector<double>>* dataNOut, \
-//	const char* info_mat, const char* real_mat, const char* imag_mat);
 
 #endif // !ISAR_IMAGING_EXPORT_H_
 

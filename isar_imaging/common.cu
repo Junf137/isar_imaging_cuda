@@ -79,6 +79,36 @@ void getMin(cublasHandle_t handle, float* d_vec, int len, int* min_idx, float* m
 }
 
 
+void dDataDisp(float* d_data, int rows, int cols)
+{
+	float* h_data = new float[rows * cols];
+	checkCudaErrors(cudaMemcpy(h_data, d_data, sizeof(float) * rows * cols, cudaMemcpyDeviceToHost));
+	for (int i = 0; i < rows; ++i) {
+		for (int j = 0; j < cols; ++j) {
+			std::cout << h_data[i * cols + j] << " ";
+		}
+		std::cout << std::endl;
+	}
+	std::cout << std::endl;
+	delete[] h_data;
+}
+
+
+void dDataDisp(cuComplex* d_data, int rows, int cols)
+{
+	std::complex<float>* h_data = new std::complex<float>[rows * cols];
+	checkCudaErrors(cudaMemcpy(h_data, d_data, sizeof(std::complex<float>) * rows * cols, cudaMemcpyDeviceToHost));
+	for (int i = 0; i < rows; ++i) {
+		for (int j = 0; j < cols; ++j) {
+			std::cout << h_data[i * cols + j] << " ";
+		}
+		std::cout << std::endl;
+	}
+	std::cout << std::endl;
+	delete[] h_data;
+}
+
+
 __global__ void elementwiseAbs(cuComplex* a, float* abs, int len)
 {
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
@@ -630,19 +660,6 @@ __global__ void genRefPulseCompression(cuComplex* d_ref, float* d_tk, float* d_h
 		//temp2 = -2 * 3.14159265 * F0 * v2 * t[i] / temp + 3.14159265 * Band / Taup * pow(t[i], 2);  //3.14159265
 		float tmp = (constant_1 + constant_2 * d_tk[tid]) * d_tk[tid];
 		d_ref[tid] = make_cuComplex(d_hamming[tid] * std::cos(tmp), d_hamming[tid] * std::sin(tmp));
-		
-		//if (tid == 0) {
-		//	printf("[genRefPulseCompression] %f %f %f %f %f %f\n", d_hamming[tid], tmp, std::cos(tmp), std::sin(tmp), d_ref[tid].x, d_ref[tid].y);
-		//}
-		//if (tid == 100) {
-		//	printf("[genRefPulseCompression] %f %f %f %f %f %f\n", d_hamming[tid], tmp, std::cos(tmp), std::sin(tmp), d_ref[tid].x, d_ref[tid].y);
-		//}
-		//if (tid == 2399999) {
-		//	printf("[genRefPulseCompression] %f %f %f %f %f %f\n", d_hamming[tid], tmp, std::cos(tmp), std::sin(tmp), d_ref[tid].x, d_ref[tid].y);
-		//}
-		//if (tid == 2400000) {
-		//	printf("[genRefPulseCompression] %f %f %f %f %f %f\n", d_hamming[tid], tmp, std::cos(tmp), std::sin(tmp), d_ref[tid].x, d_ref[tid].y);
-		//}
 	}
 }
 
@@ -699,13 +716,6 @@ void pulseCompression::pulseCompressionbyFFT(cuComplex* d_dataW_echo, \
 	cudaMemset(d_dataIQ + m_dataIQ_len, 0, (m_NFFT - m_dataIQ_len) * sizeof(cuComplex));
 	cudaMemset(d_ref + m_sampling_num, 0, (m_NFFT - m_sampling_num) * sizeof(cuComplex));
 
-	// display
-	//std::cout << velocity_echo << std::endl;
-	//std::cout << "d_dataIQ" << std::endl;
-	//dDataDisp(d_dataIQ + 0, 1, 10);
-	//dDataDisp(d_dataIQ + 100, 1, 10);
-	//dDataDisp(d_dataIQ + 1000, 1, 10);
-
 	// Generating reference signal
 	float v2 = 2 * static_cast<float>(velocity_echo) / LIGHT_SPEED;
 	float _v2 = 1 - v2;
@@ -713,63 +723,23 @@ void pulseCompression::pulseCompressionbyFFT(cuComplex* d_dataW_echo, \
 	float constant_2 = static_cast<float>(PI_FLT * m_paras.band_width / m_paras.Tp);
 	float scale_ifft = 1.0f / m_NFFT;
 
-	// display
-	//std::cout << "d_hamming: " << std::endl;
-	//dDataDisp(d_hamming + 0, 1, 10);
-	//dDataDisp(d_hamming + 100, 1, 10);
-	//dDataDisp(d_hamming + 2300000, 1, 10);
-
 	genTkPulseCompression << <dim3((m_sampling_num + block.x - 1) / block.x), block >> > (d_tk, static_cast<float>(m_paras.Tp), _v2, m_sampling_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// display
-	//std::cout << "d_tk: " << std::endl;
-	//dDataDisp(d_tk + 0, 1, 10);
-	//dDataDisp(d_tk + 100, 1, 10);
-	//dDataDisp(d_tk + 2300000, 1, 10);
-
 	genRefPulseCompression << <dim3((m_sampling_num + block.x - 1) / block.x), block >> > (d_ref, d_tk, d_hamming, constant_1, constant_2, m_sampling_num);
 	checkCudaErrors(cudaDeviceSynchronize());
-
-	// display
-	//std::cout << "d_ref: " << std::endl;
-	//dDataDisp(d_ref + 0, 1, 10);
-	//dDataDisp(d_ref + 100, 1, 10);
-	//dDataDisp(d_ref + 2400000, 1, 10);
 
 	// FFT(signal and reference)
 	checkCudaErrors(cufftExecC2C(plan_pc_echo_c2c, d_dataIQ, d_dataIQ, CUFFT_FORWARD));
 	checkCudaErrors(cufftExecC2C(plan_pc_echo_c2c, d_ref, d_ref, CUFFT_FORWARD));
 
-	// display
-	//std::cout << "d_dataIQ after fft" << std::endl;
-	//dDataDisp(d_dataIQ + 0, 1, 10);
-	//dDataDisp(d_dataIQ + 100, 1, 10);
-	//dDataDisp(d_dataIQ + 2400000, 1, 10);
-	//std::cout << "d_ref after fft" << std::endl;
-	//dDataDisp(d_ref + 0, 1, 10);
-	//dDataDisp(d_ref + 100, 1, 10);
-	//dDataDisp(d_ref + 2400000, 1, 10);
-
 	// Conjunction multiply
 	elementwiseMultiplyConjA << <dim3((m_NFFT + block.x - 1) / block.x), block >> > (d_ref, d_dataIQ, d_dataIQ, m_NFFT);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// display
-	//std::cout << "d_dataIQ after conjMul" << std::endl;
-	//dDataDisp(d_dataIQ + 0, 1, 10);
-	//dDataDisp(d_dataIQ + 100, 1, 10);
-	//dDataDisp(d_dataIQ + 2400000, 1, 10);
-
 	// IFFT(signal)
 	checkCudaErrors(cufftExecC2C(plan_pc_echo_c2c, d_dataIQ, d_dataIQ, CUFFT_INVERSE));
 	checkCudaErrors(cublasCsscal(handle, m_NFFT, &scale_ifft, d_dataIQ, 1));
-
-	// display
-	//std::cout << "d_dataIQ after ifft" << std::endl;
-	//dDataDisp(d_dataIQ + 0, 1, 10);
-	//dDataDisp(d_dataIQ + 100, 1, 10);
-	//dDataDisp(d_dataIQ + 2400000, 1, 10);
 
 	// Cut range profile
 	cutRangeProfile(d_dataIQ, d_dataW_echo, m_NFFT, m_range_num_ifds_pc, m_range_num_ifds_pc, handle);
