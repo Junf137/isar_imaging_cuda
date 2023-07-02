@@ -664,6 +664,119 @@ __global__ void genRefPulseCompression(cuComplex* d_ref, float* d_tk, float* d_h
 }
 
 
+/// <summary>
+/// 
+/// </summary>
+/// <param name="d_tk"></param>
+/// <param name="Fs"></param>
+/// <param name="Tp"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void genTkPulseCompressionSim(float* d_tk, long long Fs, double Tp, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (tid < len) {
+		d_tk[tid] = -static_cast<float>(Tp) / 2.0f + static_cast<float>(tid) / static_cast<float>(Fs);
+	}
+}
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="d_ref"></param>
+/// <param name="d_tk"></param>
+/// <param name="constant_1"></param>
+/// <param name="constant_2"></param>
+/// <param name="len"></param>
+/// <returns></returns>
+__global__ void genRefPulseCompressionSim(cuComplex* d_ref, float* d_tk, float* d_hamming, float constant_1, float constant_2, int len)
+{
+	int tid = blockIdx.x * blockDim.x + threadIdx.x;
+
+	if (tid < len) {
+		float tmp = (constant_1 + constant_2 * d_tk[tid]) * d_tk[tid];
+		d_ref[tid] = make_cuComplex(std::cos(tmp) * d_hamming[tid], std::sin(tmp) * d_hamming[tid]);
+	}
+}
+
+
+pulseCompressionSim::pulseCompressionSim(const RadarParameters& paras, const int& tk_len, const int& frame_length_32bits)
+{
+	m_paras = paras;
+	m_tk_len = tk_len;
+	m_frame_length_32bits = frame_length_32bits;
+
+	// Initiate cuBLAS and cuFFT handle
+	checkCudaErrors(cublasCreate(&m_handle));
+	checkCudaErrors(cufftPlan1d(&m_plan_pc_echo_c2c, m_frame_length_32bits, CUFFT_C2C, 1));
+
+	// Allocate memory in device
+	checkCudaErrors(cudaMalloc((void**)&m_d_hamming, sizeof(float) * m_tk_len));
+	checkCudaErrors(cudaMalloc((void**)&m_d_tk, sizeof(float) * m_tk_len));
+	checkCudaErrors(cudaMalloc((void**)&m_d_ref, sizeof(cuComplex) * m_frame_length_32bits));
+	checkCudaErrors(cudaMalloc((void**)&m_d_echo_buffer, sizeof(cuComplex) * m_frame_length_32bits));
+
+	// Generate d_tk
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);
+	genTkPulseCompressionSim << <(m_tk_len + block.x - 1) / block.x, block >> > (m_d_tk, m_paras.Fs, m_paras.Tp, m_tk_len);
+
+	// Generate hamming window vector
+	genHammingVec << <dim3((m_tk_len + block.x - 1) / block.x), block >> > (m_d_hamming, m_tk_len);
+}
+
+
+pulseCompressionSim::~pulseCompressionSim()
+{
+	// Free cuda handle
+	checkCudaErrors(cublasDestroy(m_handle));
+	checkCudaErrors(cufftDestroy(m_plan_pc_echo_c2c));
+
+	// Free allocated memory in device
+	checkCudaErrors(cudaFree(m_d_hamming));
+	checkCudaErrors(cudaFree(m_d_tk));
+	checkCudaErrors(cudaFree(m_d_ref));
+	checkCudaErrors(cudaFree(m_d_echo_buffer));
+}
+
+
+void pulseCompressionSim::pulseCompressionbyFFTSim(cuComplex* d_dataW_echo, const std::complex<float>* h_echo_buffer, const float& velocity)
+{
+	dim3 block(DEFAULT_THREAD_PER_BLOCK);
+
+	float scale_ifft = 1.0f / static_cast<float>(m_frame_length_32bits);
+	float v2 = 2.0f * velocity / LIGHT_SPEED;
+	float constant_1 = -2 * PI_FLT * m_paras.fc * v2;
+	float constant_2 = PI_FLT * static_cast<float>(m_paras.band_width / m_paras.Tp) * (1 - v2) * (1 - v2);
+
+	// Copy echo buffer to device
+	checkCudaErrors(cudaMemcpy(m_d_echo_buffer, h_echo_buffer, sizeof(cuComplex) * m_frame_length_32bits, cudaMemcpyHostToDevice));
+
+	// Set extra value of m_d_ref into 0
+	cudaMemset(m_d_ref + m_tk_len, 0, (m_frame_length_32bits - m_tk_len) * sizeof(cuComplex));
+
+	// Generate reference signal
+	genRefPulseCompressionSim << <(m_tk_len + block.x - 1) / block.x, block >> > (m_d_ref, m_d_tk, m_d_hamming, constant_1, constant_2, m_tk_len);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// FFT(signal and reference)
+	checkCudaErrors(cufftExecC2C(m_plan_pc_echo_c2c, m_d_echo_buffer, m_d_echo_buffer, CUFFT_FORWARD));
+	checkCudaErrors(cufftExecC2C(m_plan_pc_echo_c2c, m_d_ref, m_d_ref, CUFFT_FORWARD));
+
+	// Conjunction multiply
+	elementwiseMultiplyConjA << <dim3((m_frame_length_32bits + block.x - 1) / block.x), block >> > (m_d_ref, m_d_echo_buffer, m_d_echo_buffer, m_frame_length_32bits);
+	checkCudaErrors(cudaDeviceSynchronize());
+
+	// IFFT(signal)
+	checkCudaErrors(cufftExecC2C(m_plan_pc_echo_c2c, m_d_echo_buffer, m_d_echo_buffer, CUFFT_INVERSE));
+	checkCudaErrors(cublasCsscal(m_handle, m_frame_length_32bits, &scale_ifft, m_d_echo_buffer, 1));
+
+	// Copy result to d_dataW_echo
+	checkCudaErrors(cudaMemcpy(d_dataW_echo, m_d_echo_buffer + m_tk_len, sizeof(cuComplex) * m_paras.range_num, cudaMemcpyDeviceToDevice));
+}
+
+
 /* pulseCompression Class */
 pulseCompression::pulseCompression(const int& NFFT, const int& dataIQ_len, const int& range_num_ifds_pc, const RadarParameters& paras)
 {

@@ -625,6 +625,75 @@ void multiThreadSTRETCH(std::complex<float>* h_data, cuComplex* d_data, int16_t*
 	const RadarParameters& paras, const vec1D_INT& dataWFileSn, const vec1D_DBL& dataNOut);
 
 
+/* pulseCompression Class for Simulation Data*/
+class pulseCompressionSim
+{
+private:
+	RadarParameters m_paras;
+	int m_tk_len;
+	int m_frame_length_32bits;
+
+	cublasHandle_t m_handle;
+	cufftHandle m_plan_pc_echo_c2c;
+
+	float* m_d_hamming;
+	float* m_d_tk;
+	cuComplex* m_d_ref;
+	cuComplex* m_d_echo_buffer;
+
+public:
+	/// <summary>
+	/// 
+	/// </summary>
+	pulseCompressionSim() = default;
+
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="m_paras"></param>
+	/// <param name="m_tk_len"></param>
+	/// <param name="m_frame_length_32bits"></param>
+	/// <param name="m_handle"></param>
+	/// <param name="m_plan_pc_echo_c2c"></param>
+	/// <param name="m_d_hamming"></param>
+	/// <param name="m_d_tk"></param>
+	/// <param name="m_d_ref"></param>
+	/// <param name="m_d_echo_buffer"></param>
+	pulseCompressionSim(const RadarParameters& m_paras, int m_tk_len, int m_frame_length_32bits, const cublasHandle_t& m_handle, const cufftHandle& m_plan_pc_echo_c2c, float* m_d_hamming, float* m_d_tk, cuComplex* m_d_ref, cuComplex* m_d_echo_buffer)
+		: m_paras(m_paras), m_tk_len(m_tk_len), m_frame_length_32bits(m_frame_length_32bits), m_handle(m_handle), m_plan_pc_echo_c2c(m_plan_pc_echo_c2c), m_d_hamming(m_d_hamming), m_d_tk(m_d_tk), m_d_ref(m_d_ref), m_d_echo_buffer(m_d_echo_buffer)
+	{
+	}
+
+	/// <summary>
+	/// 
+	/// </summary>
+	~pulseCompressionSim();
+
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="other"></param>
+	/// <returns></returns>
+	bool operator==(const pulseCompressionSim& other) const = default;
+
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="paras"></param>
+	/// <param name="tk_len"></param>
+	/// <param name="frame_length_32bits"></param>
+	pulseCompressionSim(const RadarParameters& paras, const int& tk_len, const int& frame_length_32bits);
+
+	/// <summary>
+	/// 
+	/// </summary>
+	/// <param name="d_dataW_echo"></param>
+	/// <param name="h_echo_buffer"></param>
+	/// <param name="velocity"></param>
+	void pulseCompressionbyFFTSim(cuComplex* d_dataW_echo, const std::complex<float>* h_echo_buffer, const float& velocity);
+};
+
+
 /* pulseCompression Class */
 class pulseCompression
 {

@@ -277,3 +277,146 @@ void imagingMemDest(const int& data_type, const bool& if_hpc, const bool& if_hrr
     g_d_data_num_flt_2 = nullptr;
 
 }
+
+
+/******************
+ * API for Simulation Data
+ ******************/
+void dataParsingSim(int32_t* index_header, const std::string& dir_path)
+{
+    paras.band_width = 1000000000;
+    paras.fc = 1800000000;
+    paras.Fs = 1200000000;
+    paras.Tp = 0.0002;
+
+    // read index_header
+    std::string indexHeaderFilePath = dir_path + "\\index_header.bin";
+    std::ifstream indexFile(indexHeaderFilePath, std::ios::binary);
+    if (!indexFile.is_open()) {
+        std::cout << "[readIndexHeader/ERROR] Failed to open file: " << indexHeaderFilePath << std::endl;
+        return;
+    }
+    indexFile.read(reinterpret_cast<char*>(index_header), sizeof(int32_t) * 1000);
+    indexFile.close();
+
+    INTERMEDIATE_DIR = dir_path + std::string("\\intermediate\\");
+}
+
+
+void imagingMemInitSim(vec1D_FLT* img, const int& window_len, const bool& if_hrrp)
+{
+    paras.echo_num = window_len;
+    paras.range_num = 2384;
+    paras.data_num = paras.echo_num * paras.range_num;
+
+    paras.range_num_cut = RANGE_NUM_CUT;
+    paras.data_num_cut = paras.echo_num * paras.range_num_cut;
+
+    img->resize(paras.echo_num * paras.range_num_cut);
+
+    handles.handleInit(paras.echo_num, paras.range_num);
+
+    checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * paras.data_num));
+    checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * paras.range_num_cut));
+    checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
+    checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
+    if (if_hrrp == true) {
+        checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
+    }
+    checkCudaErrors(cudaMalloc((void**)&d_hamming_echoes, sizeof(float) * paras.echo_num));
+    checkCudaErrors(cudaMalloc((void**)&d_img, sizeof(float) * paras.echo_num * paras.range_num_cut));
+
+    // generate hamming window
+    genHammingVecInit(d_hamming, paras.range_num, d_hamming_echoes, paras.echo_num);
+}
+
+
+void dataExtractingSim(int32_t* index_header, const std::string& dir_path, const int& window_head, const int& window_len)
+{
+    int frame_length_16bits = 484768;
+    int frame_length_32bits = frame_length_16bits / 2;
+    int tk_len = 240000;
+
+    float PRF = 1000.0f / 3.0f;
+    float v0 = 182.4415637903265f;
+    float a = 14.333349273443416f;
+
+    int16_t* echo_buffer = new int16_t[frame_length_16bits];
+    std::complex<float>* echo_buffer_complex = new std::complex<float>[frame_length_32bits];
+    vec1D_COM_FLT echo_buffer_complex_vec(frame_length_32bits);
+
+    // reading data from file
+    std::string dataFilePath = dir_path + "\\tgt_0003.dat";
+    std::ifstream dataFile(dataFilePath, std::ios::binary);
+    if (!dataFile.is_open()) {
+        std::cout << "[pulseSimData/ERROR] Failed to open file: " << dataFilePath << std::endl;
+        return;
+    }
+
+    pulseCompressionSim pc_sim(paras, tk_len, frame_length_32bits);
+
+    for (int i = 0; i < window_len; ++i) {
+        dataFile.seekg((index_header[window_head + i] - 1) * 2 + 32, std::ifstream::beg);
+
+        dataFile.read(reinterpret_cast<char*>(echo_buffer), sizeof(int16_t) * frame_length_16bits);
+
+        for (int j = 0; (j + 3) < frame_length_32bits; j += 4) {
+            echo_buffer_complex[j + 0] = std::complex<float>(echo_buffer[j * 2 + 0], echo_buffer[j * 2 + 4]);
+            echo_buffer_complex[j + 1] = std::complex<float>(echo_buffer[j * 2 + 1], echo_buffer[j * 2 + 5]);
+            echo_buffer_complex[j + 2] = std::complex<float>(echo_buffer[j * 2 + 2], echo_buffer[j * 2 + 6]);
+            echo_buffer_complex[j + 3] = std::complex<float>(echo_buffer[j * 2 + 3], echo_buffer[j * 2 + 7]);
+        }
+
+        echo_buffer_complex_vec.assign(echo_buffer_complex, echo_buffer_complex + frame_length_32bits);
+
+        // pulse compression
+        pc_sim.pulseCompressionbyFFTSim(d_data + i * paras.range_num, echo_buffer_complex, v0 + a * i / PRF);
+    }
+
+    // free memory
+    delete[] echo_buffer;
+    delete[] echo_buffer_complex;
+    echo_buffer = nullptr;
+    echo_buffer_complex = nullptr;
+}
+
+
+void isarMainSingleSim(float* h_img, const bool& if_hrrp, const bool& if_mtrc)
+{
+    DATA_TYPE data_type = DATA_TYPE::IFDS;
+    int option_alignment = 0;
+    int option_phase = 0;
+    bool if_hpc = false;
+
+    ISAR_RD_Imaging_Main_Ku(h_img, d_data, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, data_type, option_alignment, option_phase, if_hrrp, if_hpc, if_mtrc);
+}
+
+
+void imagingMemDestSim(const bool& if_hrrp)
+{
+    // free cuFFT handle
+    handles.handleDest();
+
+    // free allocated memory using cudaMalloc
+    checkCudaErrors(cudaFree(d_data));
+    checkCudaErrors(cudaFree(d_data_cut));
+    checkCudaErrors(cudaFree(d_velocity));
+    checkCudaErrors(cudaFree(d_hamming));
+
+    if (if_hrrp == true) {
+        checkCudaErrors(cudaFree(d_hrrp));
+        d_hrrp = nullptr;
+    }
+
+    checkCudaErrors(cudaFree(d_hamming_echoes));
+    checkCudaErrors(cudaFree(d_img));
+    d_data = nullptr;
+    d_data_pp_1 = nullptr;
+    d_data_pp_2 = nullptr;
+    d_data_proc = nullptr;
+    d_data_cut = nullptr;
+    d_velocity = nullptr;
+    d_hamming = nullptr;
+    d_hamming_echoes = nullptr;
+    d_img = nullptr;
+}

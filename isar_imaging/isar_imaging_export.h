@@ -130,5 +130,51 @@ extern "C" DLL_EXPORT_API void writeFileFLT(const std::string& outFilePath, cons
 extern "C" DLL_EXPORT_API void imagingMemDest(const int& data_type, const bool& if_hpc, const bool& if_hrrp);
 
 
+/******************
+ * API for Simulation Data
+ ******************/
+ /// <summary>
+ /// 
+ /// </summary>
+ /// <param name="index_header"></param>
+ /// <param name="dir_path"></param>
+extern "C" DLL_EXPORT_API void dataParsingSim(int32_t * index_header, const std::string & dir_path);
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="img"></param>
+/// <param name="window_len"></param>
+/// <param name="if_hrrp"></param>
+extern "C" DLL_EXPORT_API void imagingMemInitSim(vec1D_FLT * img, const int& window_len, const bool& if_hrrp);
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="index_header"></param>
+/// <param name="dir_path"></param>
+/// <param name="window_head"></param>
+/// <param name="window_len"></param>
+extern "C" DLL_EXPORT_API void dataExtractingSim(int32_t * index_header, const std::string & dir_path, const int& window_head, const int& window_len);
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="h_img"></param>
+/// <param name="if_hrrp"></param>
+/// <param name="if_mtrc"></param>
+extern "C" DLL_EXPORT_API void isarMainSingleSim(float* h_img, const bool& if_hrrp, const bool& if_mtrc);
+
+
+/// <summary>
+/// 
+/// </summary>
+/// <param name="if_hrrp"></param>
+extern "C" DLL_EXPORT_API void imagingMemDestSim(const bool& if_hrrp);
+
+
 #endif // !ISAR_IMAGING_EXPORT_H_
 
