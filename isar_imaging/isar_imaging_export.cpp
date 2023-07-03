@@ -105,7 +105,7 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnA
 
 
 void imagingMemInit(vec1D_FLT* img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
-    const int& window_len, const int& frame_len, const int& data_type, const bool& if_hrrp)
+    const int& window_len, const int& frame_len, const int& data_type, const bool& if_hpc, const bool& if_hrrp)
 {
 #ifdef SEPARATE_TIMEING_
     std::cout << "---* Starting GPU Memory Initialization *---\n";
@@ -155,7 +155,9 @@ void imagingMemInit(vec1D_FLT* img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut,
     checkCudaErrors(cudaMalloc((void**)&d_data_pp_2, sizeof(cuComplex) * paras.data_num));
     checkCudaErrors(cudaMalloc((void**)&d_data_proc, sizeof(cuComplex) * paras.data_num));
     checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * paras.range_num_cut));
-    checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
+    if ((if_hpc == true) && (data_type == static_cast<int>(DATA_TYPE::STRETCH))) {
+        checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
+    }
     checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
     if (if_hrrp == true) {
         checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
@@ -188,7 +190,7 @@ void writeFileFLT(const std::string& outFilePath, const float* data, const  size
 }
 
 
-void imagingMemDest(const bool& if_hrrp)
+void imagingMemDest(const int& data_type, const bool& if_hpc, const bool& if_hrrp)
 {
     // free cuFFT handle
     handles.handleDest();
@@ -198,7 +200,10 @@ void imagingMemDest(const bool& if_hrrp)
     checkCudaErrors(cudaFree(d_data_pp_2));
     checkCudaErrors(cudaFree(d_data_proc));
     checkCudaErrors(cudaFree(d_data_cut));
-    checkCudaErrors(cudaFree(d_velocity));
+    if ((if_hpc == true) && (data_type == static_cast<int>(DATA_TYPE::STRETCH))) {
+        checkCudaErrors(cudaFree(d_velocity));
+        d_velocity = nullptr;
+    }
     checkCudaErrors(cudaFree(d_hamming));
     if (if_hrrp == true) {
         checkCudaErrors(cudaFree(d_hrrp));
@@ -211,7 +216,6 @@ void imagingMemDest(const bool& if_hrrp)
     d_data_pp_2 = nullptr;
     d_data_proc = nullptr;
     d_data_cut = nullptr;
-    d_velocity = nullptr;
     d_hamming = nullptr;
     d_hamming_echoes = nullptr;
     d_img = nullptr;

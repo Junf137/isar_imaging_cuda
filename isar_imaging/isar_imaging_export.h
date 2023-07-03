@@ -10,7 +10,7 @@
 #include <iomanip>
 
 
-#define DLL_EXPORT_API __declspec(dllexport)  // [todo] dllexport ? dllimport
+#define DLL_EXPORT_API __declspec(dllexport)
 
 
 /**********************
@@ -86,10 +86,11 @@ extern "C" DLL_EXPORT_API int dataExtracting(vec1D_INT * dataWFileSn, vec1D_DBL 
 /// <param name="window_len"></param>
 /// <param name="frame_len"></param>
 /// <param name="data_type"></param>
+/// <param name="if_hpc"></param>
 /// <param name="if_hrrp"></param>
 /// <returns></returns>
 extern "C" DLL_EXPORT_API void imagingMemInit(vec1D_FLT * img, vec1D_INT * dataWFileSn, vec1D_DBL * dataNOut, vec1D_FLT * turnAngleOut, vec1D_COM_FLT * dataW, \
-	const int& window_len, const int& frame_len, const int& data_type, const bool& if_hrrp);
+	const int& window_len, const int& frame_len, const int& data_type, const bool& if_hpc, const bool& if_hrrp);
 
 
 /// <summary>
@@ -122,9 +123,11 @@ extern "C" DLL_EXPORT_API void writeFileFLT(const std::string& outFilePath, cons
 /// Free allocated memory in CPU and GPU.
 /// Destroy pointer.
 /// </summary>
+/// <param name="data_type"></param>
+/// <param name="if_hpc"></param>
 /// <param name="if_hrrp"></param>
 /// <returns></returns>
-extern "C" DLL_EXPORT_API void imagingMemDest(const bool& if_hrrp);
+extern "C" DLL_EXPORT_API void imagingMemDest(const int& data_type, const bool& if_hpc, const bool& if_hrrp);
 
 
 #endif // !ISAR_IMAGING_EXPORT_H_

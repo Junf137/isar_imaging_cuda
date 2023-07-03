@@ -17,8 +17,8 @@ enum POLAR_TYPE
 int main()
 {
     // * Imaging parameters
-    std::string dir_path("C:\\Users\\Admin\\Documents\\isar_imaging_data\\180411230920_000004_1318_01");  // IFDS
-    //std::string dir_path("C:\\Users\\Admin\\Documents\\isar_imaging_data\\210425235341_047414_1383_00");  // STRETCH
+    //std::string dir_path("C:\\Users\\Admin\\Documents\\isar_imaging_data\\180411230920_000004_1318_01");  // IFDS
+    std::string dir_path("C:\\Users\\Admin\\Documents\\isar_imaging_data\\210425235341_047414_1383_00");  // STRETCH
     int imaging_stride = 10;
     int sampling_stride = 1;
     int window_head = 0;
@@ -52,10 +52,10 @@ int main()
     dataParsing(&dataN, &turnAngle, &frame_len, &frame_num, dir_path, polar_type, data_type);
 
     // Data initialization
-    imagingMemInit(&img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len, data_type, if_hrrp);
+    imagingMemInit(&img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len, data_type, if_hpc, if_hrrp);
 
     // Sequential imaging process
-    for (int i = 0; i < 30; ++i) {
+    for (int i = 0; i < 10; ++i) {
         if (data_type == static_cast<int>(DATA_TYPE::IFDS)) {
             window_head = (window_head == 50) ? 0 : window_head;
         }
@@ -77,13 +77,13 @@ int main()
             static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(t_imaging_3 - t_imaging_2).count()));
 
         // Write h_img data into file
-        //writeFileFLT(dir_path + "\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), img.data(), window_len * 512);
+        writeFileFLT(dir_path + "\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), img.data(), window_len * 512);
         
         window_head += imaging_stride;
     }
 
     // * Free allocated memory
-    imagingMemDest(if_hrrp);
+    imagingMemDest(data_type, if_hpc, if_hrrp);
 
     return 0;
 }

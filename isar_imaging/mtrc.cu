@@ -72,9 +72,10 @@ void mtrc(cuComplex* d_data, const RadarParameters& paras, const DATA_TYPE& data
 	ifftshiftCols << <dim3(paras.range_num_cut, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_czt, paras.echo_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// [todo]
-	//S_key = fliplr(S_key);
-
+	if (data_type == DATA_TYPE::IFDS) {
+		fliplr << <dim3(((paras.range_num_cut / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_czt, paras.range_num_cut);
+		checkCudaErrors(cudaDeviceSynchronize());
+	}
 
 	// * Free allocated memory
 	checkCudaErrors(cudaFree(d_st));

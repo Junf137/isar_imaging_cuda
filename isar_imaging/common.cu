@@ -1102,6 +1102,9 @@ int ioOperation::getSignalData(std::complex<float>* h_data, cuComplex* d_data, c
 		// d_data (host -> device)
 		checkCudaErrors(cudaMemcpy(d_data + overlap_len * paras.range_num, h_data + overlap_len * paras.range_num, sizeof(cuComplex) * new_len * paras.range_num, cudaMemcpyHostToDevice));
 
+		// Transfer Velocity Data(host to device)
+		checkCudaErrors(cudaMemcpy(d_velocity, dataNOut.data() + paras.echo_num, sizeof(double) * paras.echo_num, cudaMemcpyHostToDevice));
+
 		break;
 
 		// multi-thread version
@@ -1149,9 +1152,6 @@ int ioOperation::getSignalData(std::complex<float>* h_data, cuComplex* d_data, c
 
 	// d_data -> d_data_proc
 	checkCudaErrors(cudaMemcpy(d_data_proc, d_data, sizeof(cuComplex)* paras.data_num, cudaMemcpyDeviceToDevice));
-
-	// Transfer Velocity Data(host to device)
-	checkCudaErrors(cudaMemcpy(d_velocity, dataNOut.data() + paras.echo_num, sizeof(double) * paras.echo_num, cudaMemcpyHostToDevice));
 
 	// close file
 	for (int i = 0; i < m_file_vec.size(); ++i) {

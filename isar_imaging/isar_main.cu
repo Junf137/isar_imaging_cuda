@@ -6,13 +6,13 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);
 	float scale_ifft = 1.0f / static_cast<float>(paras.range_num);
 
+
 #ifdef DATA_WRITE_BACK_DATAW
 	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "dataW.dat", d_data, paras.data_num);
 #endif // DATA_WRITE_BACK_DATAW
 
 
 	if (data_type == DATA_TYPE::IFDS) {
-		//DataW = ifftshift(ifft(ifftshift(DataW, 2), [], 2), 2);
 		// ifftshift
 		ifftshiftRows << <dim3(((paras.range_num / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_data, paras.range_num);
 		checkCudaErrors(cudaDeviceSynchronize());
@@ -30,7 +30,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	/******************************
 	* HPC
 	******************************/
-	if (if_hpc && (data_type == DATA_TYPE::STRETCH)) {
+	if ((if_hpc == true) && (data_type == DATA_TYPE::STRETCH)) {
 #ifdef SEPARATE_TIMEING_
 		std::cout << "---* Starting HPC *---\n";
 		auto t_hpc_1 = std::chrono::high_resolution_clock::now();
@@ -114,32 +114,11 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 #endif // SEPARATE_TIMEING_
 
 
-
 	/**********************
-	 * Phase Compensation
-	 * Doppler_Tracking -> RangeVariantPhaseComp -> Fast_Entropy
+	 * Phase Compensation(Fast_Entropy)
 	 **********************/
 #ifdef SEPARATE_TIMEING_
-	std::cout << "---* Starting Phase Compensation *---\n";
 	auto t_pc_1 = std::chrono::high_resolution_clock::now();
-#endif // SEPARATE_TIMEING_
-
-	//// * Retrieving Azimuth and Pitch Data
-	//double* h_azimuth = new double[paras.echo_num];
-	//double* h_pitch = new double[paras.echo_num];
-	//std::transform(dataNOut.cbegin(), dataNOut.cend(), h_azimuth, [](vec1D_DBL v) {return v[2]; });
-	//std::transform(dataNOut.cbegin(), dataNOut.cend(), h_pitch, [](vec1D_DBL v) {return v[3]; });
-
-	//// * Range Variant Phase Compensation [todo] optional
-	//rangeVariantPhaseComp(d_data_cut, h_azimuth, h_pitch, paras, handles);
-
-	//delete[] h_azimuth;
-	//delete[] h_pitch;
-	//h_pitch = nullptr;
-	//h_azimuth = nullptr;
-
-#ifdef SEPARATE_TIMEING_
-	auto t_pc_2 = std::chrono::high_resolution_clock::now();
 #endif // SEPARATE_TIMEING_
 
 	//int iteration_num = 50;
@@ -162,9 +141,8 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	fastEntropy(d_data_cut, paras.echo_num, paras.range_num_cut, handles);
 
 #ifdef SEPARATE_TIMEING_
-	auto t_pc_3 = std::chrono::high_resolution_clock::now();
+	auto t_pc_2 = std::chrono::high_resolution_clock::now();
 	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(t_pc_2 - t_pc_1).count() << "ms\n";
-	std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(t_pc_3 - t_pc_2).count() << "ms\n";
 	std::cout << "---* Phase Compensation Over *---\n";
 	std::cout << "************************************\n\n";
 #endif // SEPARATE_TIMEING_
@@ -219,15 +197,17 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	ifftshiftCols << <dim3(paras.range_num_cut, ((paras.echo_num / 2) + block.x - 1) / block.x), block >> > (d_data_cut, paras.echo_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	// [todo]
-	//ISARImageData = flipud(ISARImageData);
-
+	if (data_type == DATA_TYPE::IFDS) {
+		flipud << <dim3(paras.range_num_cut, (paras.echo_num / 2 + block.x - 1) / block.x), block >> > (d_data_cut, paras.echo_num);
+		checkCudaErrors(cudaDeviceSynchronize());
+	}
 
 	// * final img data
 	elementwiseAbs << <(paras.data_num_cut + block.x - 1) / block.x, block >> > (d_data_cut, d_img, paras.data_num_cut);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	checkCudaErrors(cudaMemcpy(h_img, d_img, sizeof(float) * paras.data_num_cut, cudaMemcpyDeviceToHost));  // img (device -> host)
+	// * img (device -> host)
+	checkCudaErrors(cudaMemcpy(h_img, d_img, sizeof(float) * paras.data_num_cut, cudaMemcpyDeviceToHost));
 
 #ifdef SEPARATE_TIMEING_
 	auto t_post_processing_2 = std::chrono::high_resolution_clock::now();
