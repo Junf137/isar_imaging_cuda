@@ -55,7 +55,7 @@ int main()
     imagingMemInit(&img, &dataWFileSn, &dataNOut, &turnAngleOut, &dataW, window_len, frame_len, data_type, if_hpc, if_hrrp);
 
     // Sequential imaging process
-    for (int i = 0; i < 10; ++i) {
+    for (int i = 0; i < 20; ++i) {
         if (data_type == static_cast<int>(DATA_TYPE::IFDS)) {
             window_head = (window_head == 50) ? 0 : window_head;
         }
@@ -77,7 +77,7 @@ int main()
             static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(t_imaging_3 - t_imaging_2).count()));
 
         // Write h_img data into file
-        writeFileFLT(dir_path + "\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), img.data(), window_len * 512);
+        //writeFileFLT(dir_path + "\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), img.data(), window_len * 512);
         
         window_head += imaging_stride;
     }

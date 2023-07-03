@@ -12,8 +12,7 @@ void mtrc(cuComplex* d_data, const RadarParameters& paras, const DATA_TYPE& data
 	float posa = chirp_rate * static_cast<float>(paras.Tp) / (paras.fc * (paras.range_num_cut - 1.0f));
 
 	// St=ifft(ifftshift(Sf,2),[],2);
-	cuComplex* d_st = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_st, sizeof(cuComplex) * paras.data_num_cut));
+	cuComplex* d_st = g_d_data_num_cut_com_flt_1;
 	checkCudaErrors(cudaMemcpy(d_st, d_data, sizeof(cuComplex) * paras.data_num_cut, cudaMemcpyDeviceToDevice));
 
 	switch (data_type) {
@@ -42,10 +41,8 @@ void mtrc(cuComplex* d_data, const RadarParameters& paras, const DATA_TYPE& data
 
 	// * CZT
 	// calculating w and a vector for each range
-	cuComplex* d_w = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_w, sizeof(cuComplex) * paras.range_num_cut));
-	cuComplex* d_a = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_a, sizeof(cuComplex) * paras.range_num_cut));
+	cuComplex* d_w = g_d_range_num_com_flt_1;
+	cuComplex* d_a = g_d_range_num_cut_com_flt_1;
 
 	float constant = chirp_rate * static_cast<float>(paras.Tp) / (2 * paras.fc);
 	getWandA << <(2 * paras.range_num_cut + block.x - 1) / block.x, block >> > (d_w, d_a, paras.echo_num, paras.range_num_cut, constant, posa);
@@ -76,11 +73,6 @@ void mtrc(cuComplex* d_data, const RadarParameters& paras, const DATA_TYPE& data
 		fliplr << <dim3(((paras.range_num_cut / 2) + block.x - 1) / block.x, paras.echo_num), block >> > (d_czt, paras.range_num_cut);
 		checkCudaErrors(cudaDeviceSynchronize());
 	}
-
-	// * Free allocated memory
-	checkCudaErrors(cudaFree(d_st));
-	checkCudaErrors(cudaFree(d_w));
-	checkCudaErrors(cudaFree(d_a));
 }
 
 

@@ -173,14 +173,12 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 
 	// * Pre-processing and pre-imaging
 	// d_data_abs = abs(d_data)
-	float* d_data_abs = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_data_abs, sizeof(float) * data_num));
+	float* d_data_abs = g_d_data_num_flt_1;
 	elementwiseAbs << <grid, block >> > (d_data, d_data_abs, data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// max_value = max(abs(d_data),[],1);
-	float* d_max_val = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_max_val, sizeof(float) * range_num));
+	float* d_max_val = g_d_range_num_flt_1;
 	thrust::device_ptr<float> thr_max_val = thrust::device_pointer_cast(d_max_val);
 	maxCols << <range_num, block, block.x * sizeof(int) >> > (d_data_abs, d_max_val, echo_num, range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
@@ -197,10 +195,8 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	//tgt_index.resize(tgt_num);
 
 	// tmpData = droptrace(RetData_RA);
-	cuComplex* d_data_comp = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_data_comp, sizeof(cuComplex)* data_num));
-	cuComplex* d_phase_tmp = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_phase_tmp, sizeof(cuComplex)* echo_num));
+	cuComplex* d_data_comp = g_d_data_num_com_flt_1;
+	cuComplex* d_phase_tmp = g_d_echo_num_com_flt_1;
 	thrust::device_ptr<comThr> thr_phase_tmp = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_phase_tmp));
 	dopplerTracking(d_data_comp, d_phase_tmp, d_data, echo_num, range_num, true);
 
@@ -217,8 +213,7 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	//}
 
 	// d_img = fft(tmpData, [], 1);
-	cuComplex* d_img = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_img, sizeof(cuComplex) * data_num));
+	cuComplex* d_img = g_d_data_num_cut_com_flt_1;
 	thrust::device_ptr<comThr> thr_img = thrust::device_pointer_cast(reinterpret_cast<comThr*>(d_img));
 	checkCudaErrors(cufftExecC2C(handles.plan_all_range_c2c, d_data_comp, d_img, CUFFT_FORWARD));
 
@@ -226,22 +221,19 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	int unit2_num = nextPow2(tgt_num / 2);
 
 	// sqr_img = abs(image2).^2;
-	float* d_sqr_img = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_sqr_img, sizeof(float) * data_num));
+	float* d_sqr_img = g_d_data_num_flt_2;
 	thrust::device_ptr<float> thr_sqr_img = thrust::device_pointer_cast(d_sqr_img);
 	thrust::transform(thrust::device, thr_img, thr_img + data_num, thr_sqr_img, \
 		[]__host__ __device__(const comThr & x) { return powf(thrust::abs(x), 2); });
 	
 	// sqr_image_sum_col = sum(sqr_img);
-	float* d_sqr_img_sum_col = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_sqr_img_sum_col, sizeof(float) * range_num));
+	float* d_sqr_img_sum_col = g_d_range_num_cut_flt_1;
 	thrust::device_ptr<float> thr_sqr_img_sum_col = thrust::device_pointer_cast(d_sqr_img_sum_col);
 	sumCols << <range_num, echo_num, echo_num * sizeof(float) >> > (d_sqr_img, d_sqr_img_sum_col, echo_num, range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * Get entropy
-	float* d_sqr_img_norm = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_sqr_img_norm, sizeof(float) * data_num));
+	float* d_sqr_img_norm = g_d_data_num_cut_flt_1;
 	thrust::device_ptr<float> thr_sqr_img_norm = thrust::device_pointer_cast(d_sqr_img_norm);
 	elementwiseDivRep << <grid, block >> > (d_sqr_img_sum_col, d_sqr_img, d_sqr_img_norm, range_num, data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
@@ -249,8 +241,7 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	thrust::transform(thrust::device, thr_sqr_img_norm, thr_sqr_img_norm + data_num, thr_sqr_img_norm, \
 		[]__host__ __device__(float& x) { return -(x * logf(x)); });
 
-	float* d_entropy = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_entropy, sizeof(float) * range_num));
+	float* d_entropy = g_d_range_num_cut_flt_2;
 	sumCols << <range_num, echo_num, echo_num * sizeof(float) >> > (d_sqr_img_norm, d_entropy, echo_num, range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
@@ -334,15 +325,6 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	checkCudaErrors(cudaDeviceSynchronize());
 
 	// * Free allocated memory
-	checkCudaErrors(cudaFree(d_data_abs));
-	checkCudaErrors(cudaFree(d_max_val));
-	checkCudaErrors(cudaFree(d_data_comp));
-	checkCudaErrors(cudaFree(d_phase_tmp));
-	checkCudaErrors(cudaFree(d_img));
-	checkCudaErrors(cudaFree(d_sqr_img));
-	checkCudaErrors(cudaFree(d_sqr_img_sum_col));
-	checkCudaErrors(cudaFree(d_sqr_img_norm));
-	checkCudaErrors(cudaFree(d_entropy));
 	checkCudaErrors(cudaFree(d_new_data));
 	checkCudaErrors(cudaFree(d_new_data_tmp));
 

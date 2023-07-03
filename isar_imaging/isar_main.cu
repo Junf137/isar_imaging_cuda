@@ -1,6 +1,6 @@
 ﻿#include "isar_main.cuh"
 
-int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_cut, double* d_velocity, float* d_hamming, cuComplex* d_hrrp, float* d_hamming_echoes, float* d_img, \
+int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_cut, \
 	const RadarParameters& paras, const CUDAHandle& handles, const DATA_TYPE& data_type, const int& option_alignment, const int& option_phase, const bool& if_hrrp, const bool& if_hpc, const bool& if_mtrc)
 {
 	dim3 block(DEFAULT_THREAD_PER_BLOCK);
@@ -8,7 +8,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_DATAW
-	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "dataW.dat", d_data, paras.data_num);
+	ioOperation::dataWriteBack(INTERMEDIATE_DIR + "dataW.dat", d_data, paras.data_num);
 #endif // DATA_WRITE_BACK_DATAW
 
 
@@ -49,7 +49,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_HPC
-	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "hpc.dat", d_data, paras.data_num);
+	ioOperation::dataWriteBack(INTERMEDIATE_DIR + "hpc.dat", d_data, paras.data_num);
 #endif // DATA_WRITE_BACK_HPC
 
 
@@ -74,7 +74,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_HRRP
-		ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "hrrp.dat", d_hrrp, paras.data_num);
+		ioOperation::dataWriteBack(INTERMEDIATE_DIR + "hrrp.dat", d_hrrp, paras.data_num);
 #endif // DATA_WRITE_BACK_HRRP
 	}
 
@@ -99,7 +99,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	HRRPCenter(d_data, inter_length, paras, handles);
 
 #ifdef DATA_WRITE_BACK_RA
-	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "ra.dat", d_data, paras.data_num);
+	ioOperation::dataWriteBack(INTERMEDIATE_DIR + "ra.dat", d_data, paras.data_num);
 #endif // DATA_WRITE_BACK_RA
 
 	// * Cutting range profile
@@ -118,6 +118,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 	 * Phase Compensation(Fast_Entropy)
 	 **********************/
 #ifdef SEPARATE_TIMEING_
+	std::cout << "---* Starting Phase Compensation *---\n";
 	auto t_pc_1 = std::chrono::high_resolution_clock::now();
 #endif // SEPARATE_TIMEING_
 
@@ -149,7 +150,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_PC
-	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "pc.dat", d_data_cut, paras.data_num_cut);
+	ioOperation::dataWriteBack(INTERMEDIATE_DIR + "pc.dat", d_data_cut, paras.data_num_cut);
 #endif // DATA_WRITE_BACK_PC
 
 
@@ -175,7 +176,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_MTRC
-	ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "mtrc.dat", d_data_cut, paras.data_num_cut);
+	ioOperation::dataWriteBack(INTERMEDIATE_DIR + "mtrc.dat", d_data_cut, paras.data_num_cut);
 #endif // DATA_WRITE_BACK_MTRC
 
 
@@ -218,7 +219,7 @@ int ISAR_RD_Imaging_Main_Ku(float* h_img, cuComplex* d_data, cuComplex* d_data_c
 
 
 #ifdef DATA_WRITE_BACK_FINAL
-	ioOperation::writeFile(std::string(INTERMEDIATE_DIR) + "final.dat", h_img, paras.data_num_cut);
+	ioOperation::writeFile(INTERMEDIATE_DIR + "final.dat", h_img, paras.data_num_cut);
 #endif // DATA_WRITE_BACK_FINAL
 
 

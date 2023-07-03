@@ -10,8 +10,7 @@ void rangeAlignmentParallel(cuComplex* d_data, float* hamming_window, const Rada
 	float scale_ifft = 1 / static_cast<float>(paras.range_num);  // scalar parameter used after cuFFT ifft transformation
 
 	// * Frequency centering
-	cuComplex* d_freq_centering = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_freq_centering, sizeof(cuComplex) * paras.range_num));
+	cuComplex* d_freq_centering = g_d_range_num_com_flt_1;
 	genFreqCenteringVec << <dim3((paras.range_num + block.x - 1) / block.x), block >> > (hamming_window, d_freq_centering, paras.range_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
@@ -21,20 +20,15 @@ void rangeAlignmentParallel(cuComplex* d_data, float* hamming_window, const Rada
 	// * Merge alignment process
 	// * Initializing memory
 	// space for ifft vector and frequency moving vector
-	cuComplex* d_com_temp = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_com_temp, sizeof(cuComplex) * paras.data_num));
+	cuComplex* d_com_temp = g_d_data_num_com_flt_1;
 	// space for abs after ifft
-	float* d_ifft_abs = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_ifft_abs, sizeof(float) * paras.data_num));
+	float* d_ifft_abs = g_d_data_num_flt_1;
 	// space for average profile
-	float* d_ave_profile = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_ave_profile, sizeof(float) * paras.data_num));
+	float* d_ave_profile = g_d_data_num_flt_2;
 	// space for ifft when calculating correlation
-	cuComplex* d_ave_profile_fft = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_ave_profile_fft, sizeof(cuComplex) * paras.echo_num * (paras.range_num / 2 + 1)));  // Hermitian symmetry
+	cuComplex* d_ave_profile_fft = g_d_hlf_data_num_com_flt_1;  // Hermitian symmetry
 	// space for storing max value index of every rows
-	float* d_max_idx = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_max_idx, sizeof(float) * paras.echo_num));
+	float* d_max_idx = g_d_echo_num_flt_1;
 
 	// * MergeAligning d_data till stride equal to echo_num
 	int stride = 1;
@@ -81,14 +75,6 @@ void rangeAlignmentParallel(cuComplex* d_data, float* hamming_window, const Rada
 	// * Applying ifft to all echoes of d_data
 	checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c, d_data, d_data, CUFFT_INVERSE));
 	checkCudaErrors(cublasCsscal(handles.handle, paras.data_num, &scale_ifft, d_data, 1));
-
-	// * Free allocated memory
-	checkCudaErrors(cudaFree(d_com_temp));
-	checkCudaErrors(cudaFree(d_ifft_abs));
-	checkCudaErrors(cudaFree(d_ave_profile));
-	checkCudaErrors(cudaFree(d_ave_profile_fft));
-	checkCudaErrors(cudaFree(d_max_idx));
-	checkCudaErrors(cudaFree(d_freq_centering));
 }
 
 
@@ -389,8 +375,7 @@ void HRRPCenter(cuComplex* d_data, const int& inter_length, const RadarParameter
 	dim3 grid_one_echo((paras.range_num + block.x - 1) / block.x);
 
 	// * Normalizing HRRP
-	float* d_hrrp = nullptr;
-	checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(float) * paras.data_num));
+	float* d_hrrp = g_d_data_num_flt_1;
 
 	// d_hrrp = abs(d_data)
 	elementwiseAbs << <grid, block >> > (d_data, d_hrrp, paras.data_num);
@@ -476,7 +461,6 @@ void HRRPCenter(cuComplex* d_data, const int& inter_length, const RadarParameter
 	}
 
 	// * Free GPU Allocated Space
-	checkCudaErrors(cudaFree(d_hrrp));
 	checkCudaErrors(cudaFree(d_arp_ave));
 }
 

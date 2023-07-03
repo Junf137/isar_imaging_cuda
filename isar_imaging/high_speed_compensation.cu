@@ -23,15 +23,15 @@ void highSpeedCompensation(cuComplex* d_data, double* d_velocity, const RadarPar
 	cuComplexFLT2DBL << <grid, block >> > (reinterpret_cast<cuFloatComplex*>(d_data), d_data_dbl, paras.data_num);
 	checkCudaErrors(cudaDeviceSynchronize());
 
-	//ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "dataW.dat", d_data_dbl, paras.data_num);
-	//ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "velocity.dat", d_velocity, paras.echo_num);
+	//ioOperation::dataWriteBack(INTERMEDIATE_DIR + "dataW.dat", d_data_dbl, paras.data_num);
+	//ioOperation::dataWriteBack(INTERMEDIATE_DIR + "velocity.dat", d_velocity, paras.echo_num);
 
 	// phase = coefficient * v * tk.^2
 	double* d_phase = nullptr;
 	checkCudaErrors(cudaMalloc((void**)&d_phase, sizeof(double) * paras.data_num));  // new allocated space are set to zero
 	checkCudaErrors(cublasDger(handles.handle, paras.range_num, paras.echo_num, &coefficient, d_tk_2, 1, d_velocity, 1, d_phase, paras.range_num));
 
-	//ioOperation::dataWriteBack(std::string(INTERMEDIATE_DIR) + "fai.dat", d_phase, paras.data_num);
+	//ioOperation::dataWriteBack(INTERMEDIATE_DIR + "fai.dat", d_phase, paras.data_num);
 
 	// phi = exp(1j*phase)
 	cuDoubleComplex* d_fai = nullptr;
