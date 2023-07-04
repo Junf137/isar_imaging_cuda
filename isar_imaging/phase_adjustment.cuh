@@ -4,6 +4,21 @@
 #include "common.cuh"
 
 
+extern cuComplex* g_d_range_num_com_flt_1;
+extern cuComplex* g_d_range_num_cut_com_flt_1;
+extern cuComplex* g_d_echo_num_com_flt_1;
+extern cuComplex* g_d_data_num_com_flt_1;
+extern cuComplex* g_d_data_num_cut_com_flt_1;
+extern cuComplex* g_d_hlf_data_num_com_flt_1;
+extern float* g_d_range_num_flt_1;
+extern float* g_d_range_num_cut_flt_1;
+extern float* g_d_range_num_cut_flt_2;
+extern float* g_d_echo_num_flt_1;
+extern float* g_d_data_num_cut_flt_1;
+extern float* g_d_data_num_flt_1;
+extern float* g_d_data_num_flt_2;
+
+
 /// <summary>
 /// Doppler tracking. Achieving Coarse phase calibration.
 /// </summary>

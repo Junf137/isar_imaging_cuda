@@ -19,6 +19,20 @@ cuComplex* d_hrrp;
 float* d_hamming_echoes;
 float* d_img;
 
+// Global variable used in separate compensation process
+cuComplex* g_d_range_num_com_flt_1;
+cuComplex* g_d_range_num_cut_com_flt_1;
+cuComplex* g_d_echo_num_com_flt_1;
+cuComplex* g_d_data_num_com_flt_1;
+cuComplex* g_d_data_num_cut_com_flt_1;
+cuComplex* g_d_hlf_data_num_com_flt_1;
+float* g_d_range_num_flt_1;
+float* g_d_range_num_cut_flt_1;
+float* g_d_range_num_cut_flt_2;
+float* g_d_echo_num_flt_1;
+float* g_d_data_num_cut_flt_1;
+float* g_d_data_num_flt_1;
+float* g_d_data_num_flt_2;
 
 int gpuDevInit()
 {
@@ -105,7 +119,7 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnA
 
 
 void imagingMemInit(vec1D_FLT* img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
-    const int& window_len, const int& frame_len, const int& data_type, const bool& if_hrrp)
+    const int& window_len, const int& frame_len, const int& data_type, const bool& if_hpc, const bool& if_hrrp)
 {
 #ifdef SEPARATE_TIMEING_
     std::cout << "---* Starting GPU Memory Initialization *---\n";
@@ -155,7 +169,9 @@ void imagingMemInit(vec1D_FLT* img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut,
     checkCudaErrors(cudaMalloc((void**)&d_data_pp_2, sizeof(cuComplex) * paras.data_num));
     checkCudaErrors(cudaMalloc((void**)&d_data_proc, sizeof(cuComplex) * paras.data_num));
     checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * paras.range_num_cut));
-    checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
+    if ((if_hpc == true) && (data_type == static_cast<int>(DATA_TYPE::STRETCH))) {
+        checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
+    }
     checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
     if (if_hrrp == true) {
         checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
@@ -165,6 +181,21 @@ void imagingMemInit(vec1D_FLT* img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut,
 
     // generate hamming window
     genHammingVecInit(d_hamming, paras.range_num, d_hamming_echoes, paras.echo_num);
+
+    // allocate memory for global variables
+    checkCudaErrors(cudaMalloc((void**)&g_d_range_num_flt_1, sizeof(float) * paras.range_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_range_num_com_flt_1, sizeof(cuComplex) * paras.range_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_data_num_com_flt_1, sizeof(cuComplex) * paras.data_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_data_num_flt_1, sizeof(float) * paras.data_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_data_num_flt_2, sizeof(float) * paras.data_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_hlf_data_num_com_flt_1, sizeof(cuComplex) * paras.echo_num * (paras.range_num / 2 + 1)));  // Hermitian symmetry
+    checkCudaErrors(cudaMalloc((void**)&g_d_echo_num_flt_1, sizeof(float) * paras.echo_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_echo_num_com_flt_1, sizeof(cuComplex) * paras.echo_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_data_num_cut_com_flt_1, sizeof(cuComplex) * paras.data_num_cut));
+    checkCudaErrors(cudaMalloc((void**)&g_d_range_num_cut_flt_1, sizeof(float) * paras.range_num_cut));
+    checkCudaErrors(cudaMalloc((void**)&g_d_data_num_cut_flt_1, sizeof(float) * paras.data_num_cut));
+    checkCudaErrors(cudaMalloc((void**)&g_d_range_num_cut_flt_2, sizeof(float) * paras.range_num_cut));
+    checkCudaErrors(cudaMalloc((void**)&g_d_range_num_cut_com_flt_1, sizeof(cuComplex) * paras.range_num_cut));
 
 #ifdef SEPARATE_TIMEING_
     auto t_init_gpu_2 = std::chrono::high_resolution_clock::now();
@@ -178,7 +209,7 @@ void imagingMemInit(vec1D_FLT* img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut,
 void isarMainSingle(float* h_img, \
     const int& data_type, const int& option_alignment, const int& option_phase, const bool& if_hrrp, const bool& if_hpc, const bool& if_mtrc)
 {
-    ISAR_RD_Imaging_Main_Ku(h_img, d_data_proc, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, static_cast<DATA_TYPE>(data_type), option_alignment, option_phase, if_hrrp, if_hpc, if_mtrc);
+    ISAR_RD_Imaging_Main_Ku(h_img, d_data_proc, d_data_cut, paras, handles, static_cast<DATA_TYPE>(data_type), option_alignment, option_phase, if_hrrp, if_hpc, if_mtrc);
 }
 
 
@@ -188,7 +219,7 @@ void writeFileFLT(const std::string& outFilePath, const float* data, const  size
 }
 
 
-void imagingMemDest(const bool& if_hrrp)
+void imagingMemDest(const int& data_type, const bool& if_hpc, const bool& if_hrrp)
 {
     // free cuFFT handle
     handles.handleDest();
@@ -198,7 +229,10 @@ void imagingMemDest(const bool& if_hrrp)
     checkCudaErrors(cudaFree(d_data_pp_2));
     checkCudaErrors(cudaFree(d_data_proc));
     checkCudaErrors(cudaFree(d_data_cut));
-    checkCudaErrors(cudaFree(d_velocity));
+    if ((if_hpc == true) && (data_type == static_cast<int>(DATA_TYPE::STRETCH))) {
+        checkCudaErrors(cudaFree(d_velocity));
+        d_velocity = nullptr;
+    }
     checkCudaErrors(cudaFree(d_hamming));
     if (if_hrrp == true) {
         checkCudaErrors(cudaFree(d_hrrp));
@@ -211,10 +245,38 @@ void imagingMemDest(const bool& if_hrrp)
     d_data_pp_2 = nullptr;
     d_data_proc = nullptr;
     d_data_cut = nullptr;
-    d_velocity = nullptr;
     d_hamming = nullptr;
     d_hamming_echoes = nullptr;
     d_img = nullptr;
+
+    // Free global variables
+    checkCudaErrors(cudaFree(g_d_range_num_com_flt_1));
+    checkCudaErrors(cudaFree(g_d_range_num_cut_com_flt_1));
+    checkCudaErrors(cudaFree(g_d_echo_num_com_flt_1));
+    checkCudaErrors(cudaFree(g_d_data_num_com_flt_1));
+    checkCudaErrors(cudaFree(g_d_data_num_cut_com_flt_1));
+    checkCudaErrors(cudaFree(g_d_hlf_data_num_com_flt_1));
+    checkCudaErrors(cudaFree(g_d_range_num_flt_1));
+    checkCudaErrors(cudaFree(g_d_range_num_cut_flt_1));
+    checkCudaErrors(cudaFree(g_d_range_num_cut_flt_2));
+    checkCudaErrors(cudaFree(g_d_echo_num_flt_1));
+    checkCudaErrors(cudaFree(g_d_data_num_cut_flt_1));
+    checkCudaErrors(cudaFree(g_d_data_num_flt_1));
+    checkCudaErrors(cudaFree(g_d_data_num_flt_2));
+    g_d_range_num_com_flt_1 = nullptr;
+    g_d_range_num_cut_com_flt_1 = nullptr;
+    g_d_echo_num_com_flt_1 = nullptr;
+    g_d_data_num_com_flt_1 = nullptr;
+    g_d_data_num_cut_com_flt_1 = nullptr;
+    g_d_hlf_data_num_com_flt_1 = nullptr;
+    g_d_range_num_flt_1 = nullptr;
+    g_d_range_num_cut_flt_1 = nullptr;
+    g_d_range_num_cut_flt_2 = nullptr;
+    g_d_echo_num_flt_1 = nullptr;
+    g_d_data_num_cut_flt_1 = nullptr;
+    g_d_data_num_flt_1 = nullptr;
+    g_d_data_num_flt_2 = nullptr;
+
 }
 
 
@@ -257,7 +319,6 @@ void imagingMemInitSim(vec1D_FLT* img, const int& window_len, const bool& if_hrr
 
     checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * paras.data_num));
     checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * paras.range_num_cut));
-    checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
     checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
     if (if_hrrp == true) {
         checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
@@ -267,6 +328,21 @@ void imagingMemInitSim(vec1D_FLT* img, const int& window_len, const bool& if_hrr
 
     // generate hamming window
     genHammingVecInit(d_hamming, paras.range_num, d_hamming_echoes, paras.echo_num);
+
+    // allocate global variables
+    checkCudaErrors(cudaMalloc((void**)&g_d_range_num_flt_1, sizeof(float) * paras.range_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_range_num_com_flt_1, sizeof(cuComplex) * paras.range_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_data_num_com_flt_1, sizeof(cuComplex) * paras.data_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_data_num_flt_1, sizeof(float) * paras.data_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_data_num_flt_2, sizeof(float) * paras.data_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_hlf_data_num_com_flt_1, sizeof(cuComplex) * paras.echo_num * (paras.range_num / 2 + 1)));  // Hermitian symmetry
+    checkCudaErrors(cudaMalloc((void**)&g_d_echo_num_flt_1, sizeof(float) * paras.echo_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_echo_num_com_flt_1, sizeof(cuComplex) * paras.echo_num));
+    checkCudaErrors(cudaMalloc((void**)&g_d_data_num_cut_com_flt_1, sizeof(cuComplex) * paras.data_num_cut));
+    checkCudaErrors(cudaMalloc((void**)&g_d_range_num_cut_flt_1, sizeof(float) * paras.range_num_cut));
+    checkCudaErrors(cudaMalloc((void**)&g_d_data_num_cut_flt_1, sizeof(float) * paras.data_num_cut));
+    checkCudaErrors(cudaMalloc((void**)&g_d_range_num_cut_flt_2, sizeof(float) * paras.range_num_cut));
+    checkCudaErrors(cudaMalloc((void**)&g_d_range_num_cut_com_flt_1, sizeof(cuComplex) * paras.range_num_cut));
 }
 
 
@@ -327,7 +403,7 @@ void isarMainSingleSim(float* h_img, const bool& if_hrrp, const bool& if_mtrc)
     int option_phase = 0;
     bool if_hpc = false;
 
-    ISAR_RD_Imaging_Main_Ku(h_img, d_data, d_data_cut, d_velocity, d_hamming, d_hrrp, d_hamming_echoes, d_img, paras, handles, data_type, option_alignment, option_phase, if_hrrp, if_hpc, if_mtrc);
+    ISAR_RD_Imaging_Main_Ku(h_img, d_data, d_data_cut, paras, handles, data_type, option_alignment, option_phase, if_hrrp, if_hpc, if_mtrc);
 }
 
 
@@ -339,14 +415,11 @@ void imagingMemDestSim(const bool& if_hrrp)
     // free allocated memory using cudaMalloc
     checkCudaErrors(cudaFree(d_data));
     checkCudaErrors(cudaFree(d_data_cut));
-    checkCudaErrors(cudaFree(d_velocity));
     checkCudaErrors(cudaFree(d_hamming));
-
     if (if_hrrp == true) {
         checkCudaErrors(cudaFree(d_hrrp));
         d_hrrp = nullptr;
     }
-
     checkCudaErrors(cudaFree(d_hamming_echoes));
     checkCudaErrors(cudaFree(d_img));
     d_data = nullptr;
@@ -354,8 +427,35 @@ void imagingMemDestSim(const bool& if_hrrp)
     d_data_pp_2 = nullptr;
     d_data_proc = nullptr;
     d_data_cut = nullptr;
-    d_velocity = nullptr;
     d_hamming = nullptr;
     d_hamming_echoes = nullptr;
     d_img = nullptr;
+
+    // Free global variables
+    checkCudaErrors(cudaFree(g_d_range_num_com_flt_1));
+    checkCudaErrors(cudaFree(g_d_range_num_cut_com_flt_1));
+    checkCudaErrors(cudaFree(g_d_echo_num_com_flt_1));
+    checkCudaErrors(cudaFree(g_d_data_num_com_flt_1));
+    checkCudaErrors(cudaFree(g_d_data_num_cut_com_flt_1));
+    checkCudaErrors(cudaFree(g_d_hlf_data_num_com_flt_1));
+    checkCudaErrors(cudaFree(g_d_range_num_flt_1));
+    checkCudaErrors(cudaFree(g_d_range_num_cut_flt_1));
+    checkCudaErrors(cudaFree(g_d_range_num_cut_flt_2));
+    checkCudaErrors(cudaFree(g_d_echo_num_flt_1));
+    checkCudaErrors(cudaFree(g_d_data_num_cut_flt_1));
+    checkCudaErrors(cudaFree(g_d_data_num_flt_1));
+    checkCudaErrors(cudaFree(g_d_data_num_flt_2));
+    g_d_range_num_com_flt_1 = nullptr;
+    g_d_range_num_cut_com_flt_1 = nullptr;
+    g_d_echo_num_com_flt_1 = nullptr;
+    g_d_data_num_com_flt_1 = nullptr;
+    g_d_data_num_cut_com_flt_1 = nullptr;
+    g_d_hlf_data_num_com_flt_1 = nullptr;
+    g_d_range_num_flt_1 = nullptr;
+    g_d_range_num_cut_flt_1 = nullptr;
+    g_d_range_num_cut_flt_2 = nullptr;
+    g_d_echo_num_flt_1 = nullptr;
+    g_d_data_num_cut_flt_1 = nullptr;
+    g_d_data_num_flt_1 = nullptr;
+    g_d_data_num_flt_2 = nullptr;
 }

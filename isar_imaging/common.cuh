@@ -188,7 +188,6 @@ template <typename T>
 /// <returns></returns>
 __global__ void swap_range(T* a, T* b, int len)
 {
-	// [todo]: separate definition and declaration
 	int tid = blockIdx.x * blockDim.x + threadIdx.x;
 
 	if (tid < len) {
@@ -201,14 +200,13 @@ template <typename T>
 /// <summary>
 /// Kernel configuration requirement:
 /// (1) block_number == {((range_num / 2) + block.x - 1) / block.x, echo_num}
-/// (2) thread_per_block == {256}
+/// (2) thread_per_block == {DEFAULT_THREAD_PER_BLOCK}
 /// </summary>
 /// <param name="d_data"></param>
 /// <param name="cols"></param>
 /// <returns></returns>
 __global__ void ifftshiftRows(T* d_data, int cols)
 {
-	// [todo]: separate definition and declaration
 	int tid = blockDim.x * blockIdx.x + threadIdx.x;
 	int bidy = blockIdx.y;
 
@@ -227,14 +225,13 @@ template <typename T>
 /// <summary>
 /// Kernel configuration requirement:
 /// (1) block_number == {range_num, ((echo_num / 2) + block.x - 1) / block.x}
-/// (2) thread_per_block == {256}
+/// (2) thread_per_block == {DEFAULT_THREAD_PER_BLOCK}
 /// </summary>
 /// <param name="d_data"></param>
 /// <param name="cols"></param>
 /// <returns></returns>
 __global__ void ifftshiftCols(T* d_data, int rows)
 {
-	// [todo]: separate definition and declaration
 	int tid = blockDim.x * blockIdx.y + threadIdx.x;
 	int bidx = blockIdx.x;
 
@@ -246,6 +243,55 @@ __global__ void ifftshiftCols(T* d_data, int rows)
 		T temp = d_data[tid * cols + bidx];
 		d_data[tid * cols + bidx] = d_data[(tid + half_rows) * cols + bidx];
 		d_data[(tid + half_rows) * cols + bidx] = temp;
+	}
+}
+
+
+template <typename T>
+/// <summary>
+/// Kernel configuration requirement:
+/// (1) block_number == {((range_num / 2) + block.x - 1) / block.x, echo_num}
+/// (2) thread_per_block == {DEFAULT_THREAD_PER_BLOCK}
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="cols"></param>
+/// <returns></returns>
+__global__ void fliplr(T* d_data, int cols)
+{
+	int tid = blockDim.x * blockIdx.x + threadIdx.x;
+	int bidy = blockIdx.y;
+
+	if (tid < cols >> 1) {
+		// swap
+		T temp = d_data[bidy * cols + tid];
+		d_data[bidy * cols + tid] = d_data[bidy * cols + (cols - 1 - tid)];
+		d_data[bidy * cols + (cols - 1 - tid)] = temp;
+	}
+}
+
+
+template <typename T>
+/// <summary>
+/// Kernel configuration requirement:
+/// (1) block_number == {range_num, ((echo_num / 2) + block.x - 1) / block.x}
+/// (2) thread_per_block == {DEFAULT_THREAD_PER_BLOCK}
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="cols"></param>
+/// <returns></returns>
+__global__ void flipud(T* d_data, int rows)
+{
+	int tid = blockDim.x * blockIdx.y + threadIdx.x;
+	int bidx = blockIdx.x;
+
+	int cols = gridDim.x;
+	int half_rows = rows >> 1;
+
+	if (tid < half_rows) {
+		// swap
+		T temp = d_data[tid * cols + bidx];
+		d_data[tid * cols + bidx] = d_data[(rows - 1 - tid) * cols + bidx];
+		d_data[(rows - 1 - tid) * cols + bidx] = temp;
 	}
 }
 

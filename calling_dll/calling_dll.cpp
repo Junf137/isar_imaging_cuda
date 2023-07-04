@@ -64,7 +64,7 @@ int main()
     }
 
     // * Free allocated memory
-    imagingMemDest(if_hrrp);
+    imagingMemDestSim(if_hrrp);
     delete[] index_header;
     index_header = nullptr;
 
