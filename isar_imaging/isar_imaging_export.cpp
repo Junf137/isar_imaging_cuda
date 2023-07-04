@@ -140,7 +140,7 @@ void imagingMemInit(vec1D_FLT* img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut,
     paras.range_num_cut = RANGE_NUM_CUT;
     paras.data_num = paras.echo_num * paras.range_num;
     paras.data_num_cut = paras.echo_num * paras.range_num_cut;
-    
+
     if (paras.echo_num > MAX_THREAD_PER_BLOCK) {
         std::cout << "[main/WARN] echo_num > MAX_THREAD_PER_BLOCK: " << MAX_THREAD_PER_BLOCK << ", please double-check the data, then reconfiguring the parameters." << std::endl;
         return;
@@ -161,7 +161,7 @@ void imagingMemInit(vec1D_FLT* img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut,
     if (data_type == static_cast<int>(DATA_TYPE::STRETCH)) {
         dataW->resize(paras.data_num);
     }
-    
+
     handles.handleInit(paras.echo_num, paras.range_num);
 
     d_data = nullptr;
@@ -223,7 +223,7 @@ void imagingMemDest(const int& data_type, const bool& if_hpc, const bool& if_hrr
     // free cuFFT handle
     handles.handleDest();
 
-    // free allocated memory using cudaMalloc
+    // free allocated memory using cudaFree
     checkCudaErrors(cudaFree(d_data_pp_1));
     checkCudaErrors(cudaFree(d_data_pp_2));
     checkCudaErrors(cudaFree(d_data_proc));
@@ -312,19 +312,18 @@ void imagingMemInitSim(vec1D_FLT* img, const int& window_len, const bool& if_hrr
     paras.range_num_cut = RANGE_NUM_CUT;
     paras.data_num_cut = paras.echo_num * paras.range_num_cut;
 
-    img->resize(paras.echo_num * paras.range_num_cut);
+    img->resize(paras.data_num_cut);
 
     handles.handleInit(paras.echo_num, paras.range_num);
 
     checkCudaErrors(cudaMalloc((void**)&d_data, sizeof(cuComplex) * paras.data_num));
-    checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.echo_num * paras.range_num_cut));
-    checkCudaErrors(cudaMalloc((void**)&d_velocity, sizeof(double) * paras.echo_num));
+    checkCudaErrors(cudaMalloc((void**)&d_data_cut, sizeof(cuComplex) * paras.data_num_cut));
     checkCudaErrors(cudaMalloc((void**)&d_hamming, sizeof(float) * paras.range_num));
     if (if_hrrp == true) {
         checkCudaErrors(cudaMalloc((void**)&d_hrrp, sizeof(cuComplex) * paras.data_num));
     }
     checkCudaErrors(cudaMalloc((void**)&d_hamming_echoes, sizeof(float) * paras.echo_num));
-    checkCudaErrors(cudaMalloc((void**)&d_img, sizeof(float) * paras.echo_num * paras.range_num_cut));
+    checkCudaErrors(cudaMalloc((void**)&d_img, sizeof(float) * paras.data_num_cut));
 
     // generate hamming window
     genHammingVecInit(d_hamming, paras.range_num, d_hamming_echoes, paras.echo_num);
@@ -333,51 +332,59 @@ void imagingMemInitSim(vec1D_FLT* img, const int& window_len, const bool& if_hrr
 
 void dataExtractingSim(int32_t* index_header, const std::string& dir_path, const int& window_head, const int& window_len)
 {
+    std::string data_file_path = dir_path + "\\tgt_0003.dat";
+    std::ifstream data_file_ifs(data_file_path, std::ios::binary);
+    if (!data_file_ifs.is_open()) {
+        std::cout << "[dataExtractingSim/ERROR] Failed to open file: " << data_file_path << std::endl;
+        return;
+    }
+
+    // Split the workload among CPU threads
+    int numThreads = 2;
+    int subsetSize = window_len / numThreads;
+
+    // Create a vector to hold the CPU threads
+    std::vector<std::thread> threads(numThreads);
+
+    // Create dataAD and dataIQ arrays for each thread to avoid data races
     int frame_length_16bits = 484768;
     int frame_length_32bits = frame_length_16bits / 2;
-    int tk_len = 240000;
 
+    std::vector<int16_t*> echo_buffer_threads(numThreads);
+    std::vector<std::complex<float>*> echo_buffer_com_threads(numThreads);
+    for (int t = 0; t < numThreads; ++t) {
+        echo_buffer_threads[t] = new int16_t[frame_length_16bits];
+        echo_buffer_com_threads[t] = new std::complex<float>[frame_length_32bits];
+    }
+
+    int tk_len = 240000;
     float PRF = 1000.0f / 3.0f;
     float v0 = 182.4415637903265f;
     float a = 14.333349273443416f;
 
-    int16_t* echo_buffer = new int16_t[frame_length_16bits];
-    std::complex<float>* echo_buffer_complex = new std::complex<float>[frame_length_32bits];
-    vec1D_COM_FLT echo_buffer_complex_vec(frame_length_32bits);
+    // Launch the CPU threads
+    for (int t = 0; t < numThreads; ++t) {
+        int startIdx = t * subsetSize;
+        int endIdx = (t == numThreads - 1) ? window_len : (startIdx + subsetSize);
 
-    // reading data from file
-    std::string dataFilePath = dir_path + "\\tgt_0003.dat";
-    std::ifstream dataFile(dataFilePath, std::ios::binary);
-    if (!dataFile.is_open()) {
-        std::cout << "[pulseSimData/ERROR] Failed to open file: " << dataFilePath << std::endl;
-        return;
+        threads[t] = std::thread(multiThreadIFDSSim, d_data, index_header, echo_buffer_threads[t], echo_buffer_com_threads[t], \
+            startIdx, endIdx, window_head, frame_length_16bits, frame_length_32bits, \
+            tk_len, v0, a, PRF, \
+            std::ref(data_file_ifs), std::ref(paras));
     }
 
-    pulseCompressionSim pc_sim(paras, tk_len, frame_length_32bits);
-
-    for (int i = 0; i < window_len; ++i) {
-        dataFile.seekg((index_header[window_head + i] - 1) * 2 + 32, std::ifstream::beg);
-
-        dataFile.read(reinterpret_cast<char*>(echo_buffer), sizeof(int16_t) * frame_length_16bits);
-
-        for (int j = 0; (j + 3) < frame_length_32bits; j += 4) {
-            echo_buffer_complex[j + 0] = std::complex<float>(echo_buffer[j * 2 + 0], echo_buffer[j * 2 + 4]);
-            echo_buffer_complex[j + 1] = std::complex<float>(echo_buffer[j * 2 + 1], echo_buffer[j * 2 + 5]);
-            echo_buffer_complex[j + 2] = std::complex<float>(echo_buffer[j * 2 + 2], echo_buffer[j * 2 + 6]);
-            echo_buffer_complex[j + 3] = std::complex<float>(echo_buffer[j * 2 + 3], echo_buffer[j * 2 + 7]);
-        }
-
-        echo_buffer_complex_vec.assign(echo_buffer_complex, echo_buffer_complex + frame_length_32bits);
-
-        // pulse compression
-        pc_sim.pulseCompressionbyFFTSim(d_data + i * paras.range_num, echo_buffer_complex, v0 + a * i / PRF);
+    // Wait for all the threads to finish
+    for (int t = 0; t < numThreads; ++t) {
+        threads[t].join();
     }
 
-    // free memory
-    delete[] echo_buffer;
-    delete[] echo_buffer_complex;
-    echo_buffer = nullptr;
-    echo_buffer_complex = nullptr;
+    // Clean up the dynamically allocated arrays
+    for (int t = 0; t < numThreads; ++t) {
+        delete[] echo_buffer_threads[t];
+        delete[] echo_buffer_com_threads[t];
+    }
+
+    data_file_ifs.close();
 }
 
 
@@ -397,7 +404,7 @@ void imagingMemDestSim(const bool& if_hrrp)
     // free cuFFT handle
     handles.handleDest();
 
-    // free allocated memory using cudaMalloc
+    // free allocated memory using cudaFree
     checkCudaErrors(cudaFree(d_data));
     checkCudaErrors(cudaFree(d_data_cut));
     checkCudaErrors(cudaFree(d_velocity));
