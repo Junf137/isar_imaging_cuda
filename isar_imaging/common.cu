@@ -580,6 +580,32 @@ void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, float* d_hamming, const Radar
 }
 
 
+void multiThreadIFDSSim(cuComplex* d_data, int32_t* index_header, int16_t* echo_buffer, std::complex<float>* echo_buffer_com, \
+    const int startIdx, const int endIdx, const int window_head, const int frame_length_16bits, const int frame_length_32bits, \
+    const int tk_len, const float v0, const float a, const float PRF, \
+    std::ifstream& ifs, RadarParameters& paras)
+{
+    // reading data from file
+    pulseCompressionSim pc_sim(paras, tk_len, frame_length_32bits);
+
+    for (int i = startIdx; i < endIdx; ++i) {
+        ifs.seekg((index_header[window_head + i] - 1) * 2 + 32, std::ifstream::beg);
+
+        ifs.read(reinterpret_cast<char*>(echo_buffer), sizeof(int16_t) * frame_length_16bits);
+
+        for (int j = 0; (j + 3) < frame_length_32bits; j += 4) {
+            echo_buffer_com[j + 0] = std::complex<float>(echo_buffer[j * 2 + 0], echo_buffer[j * 2 + 4]);
+            echo_buffer_com[j + 1] = std::complex<float>(echo_buffer[j * 2 + 1], echo_buffer[j * 2 + 5]);
+            echo_buffer_com[j + 2] = std::complex<float>(echo_buffer[j * 2 + 2], echo_buffer[j * 2 + 6]);
+            echo_buffer_com[j + 3] = std::complex<float>(echo_buffer[j * 2 + 3], echo_buffer[j * 2 + 7]);
+        }
+
+        // pulse compression
+        pc_sim.pulseCompressionbyFFTSim(d_data + i * paras.range_num, echo_buffer_com, v0 + a * static_cast<float>(i + window_head) / PRF);
+    }
+}
+
+
 void multiThreadIFDS(cuComplex* d_data, int16_t* dataAD, std::complex<float>* dataIQ, std::vector<std::ifstream>& ifs_vec, \
 	const int startIdx, const int endIdx, const int dataIQ_size, const int dataAD_size, const int frame_num, const int frame_len, \
 	const RadarParameters& paras, const vec1D_INT& dataWFileSn, const vec1D_DBL& dataNOut)

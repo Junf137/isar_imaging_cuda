@@ -582,6 +582,30 @@ void getHRRP(cuComplex* d_hrrp, cuComplex* d_data, float* d_hamming, const Radar
 
 
 /// <summary>
+/// 
+/// </summary>
+/// <param name="d_data"></param>
+/// <param name="index_header"></param>
+/// <param name="echo_buffer"></param>
+/// <param name="echo_buffer_com"></param>
+/// <param name="startIdx"></param>
+/// <param name="endIdx"></param>
+/// <param name="window_head"></param>
+/// <param name="frame_length_16bits"></param>
+/// <param name="frame_length_32bits"></param>
+/// <param name="tk_len"></param>
+/// <param name="v0"></param>
+/// <param name="a"></param>
+/// <param name="PRF"></param>
+/// <param name="ifs"></param>
+/// <param name="paras"></param>
+void multiThreadIFDSSim(cuComplex* d_data, int32_t* index_header, int16_t* echo_buffer, std::complex<float>* echo_buffer_com, \
+	const int startIdx, const int endIdx, const int window_head, const int frame_length_16bits, const int frame_length_32bits, \
+	const int tk_len, const float v0, const float a, const float PRF, \
+	std::ifstream& ifs, RadarParameters& paras);
+
+
+/// <summary>
 /// Reading signal data from file and doing pulse compression in range dimension.
 /// store the result in d_data.
 /// (Function to be executed by each CPU thread)

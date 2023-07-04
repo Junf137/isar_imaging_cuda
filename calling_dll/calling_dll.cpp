@@ -40,7 +40,7 @@ int main()
     imagingMemInitSim(&img, window_len, if_hrrp);
 
     // Sequential imaging process
-    for (int i = 0; i < 30; ++i) {
+    for (int i = 0; i < 10; ++i) {
         auto t_imaging_1 = std::chrono::high_resolution_clock::now();
 
         // Data extracting
