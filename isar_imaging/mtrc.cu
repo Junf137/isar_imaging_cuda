@@ -32,7 +32,7 @@ void mtrc(cuComplex* d_data, const RadarParameters& paras, const DATA_TYPE& data
 		// ifft
 		checkCudaErrors(cufftExecC2C(handles.plan_all_echo_c2c_cut, d_st, d_st, CUFFT_INVERSE));
 		checkCudaErrors(cublasCsscal(handles.handle, paras.data_num_cut, &scale_ifft_range, d_st, 1));
-		
+
 		break;
 	}
 	default:

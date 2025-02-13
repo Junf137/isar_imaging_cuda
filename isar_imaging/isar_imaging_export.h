@@ -110,7 +110,7 @@ extern "C" DLL_EXPORT_API void isarMainSingle(float* h_img, \
 
 
 /// <summary>
-/// 
+///
 /// </summary>
 /// <param name="outFilePath"></param>
 /// <param name="data"></param>
@@ -131,4 +131,3 @@ extern "C" DLL_EXPORT_API void imagingMemDest(const int& data_type, const bool& 
 
 
 #endif // !ISAR_IMAGING_EXPORT_H_
-

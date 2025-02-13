@@ -17,7 +17,7 @@ extern float* d_img;
 
 
 /// <summary>
-/// 
+///
 /// </summary>
 /// <param name="h_img"></param>
 /// <param name="d_data"></param>

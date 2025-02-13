@@ -625,7 +625,7 @@ void multiThreadSTRETCH(std::complex<float>* h_data, cuComplex* d_data, int16_t*
 
 
 /// <summary>
-/// 
+///
 /// </summary>
 /// <param name="d_tk"></param>
 /// <param name="Tp"></param>
@@ -643,7 +643,7 @@ __global__ void genTkPulseCompression(float* d_tk, float Tp, float constant, int
 
 
 /// <summary>
-/// 
+///
 /// </summary>
 /// <param name="d_ref"></param>
 /// <param name="d_tk"></param>

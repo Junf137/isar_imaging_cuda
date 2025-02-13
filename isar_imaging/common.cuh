@@ -9,7 +9,7 @@
 //#define DATA_WRITE_BACK_PC
 //#define DATA_WRITE_BACK_MTRC
 //#define DATA_WRITE_BACK_FINAL
-//#define SEPARATE_TIMEING_
+//#define SEPARATE_TIMING_
 
 
 #define MIN(a, b) (a<b) ? a : b
@@ -28,7 +28,7 @@
 
 // thrust lib
 #include <thrust/device_ptr.h>
-#include <thrust/host_vector.h>	
+#include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
 #include <thrust/complex.h>
 #include <thrust/transform.h>
@@ -81,7 +81,7 @@ namespace fs = std::filesystem;
 
 enum DATA_TYPE
 {
-	DEFAULT = 0,	// 
+	DEFAULT = 0,	//
 	IFDS = 1,	// IFDS data
 	STRETCH = 2		// stretch data
 };
@@ -180,7 +180,7 @@ public:
 
 template <typename T>
 /// <summary>
-/// 
+///
 /// </summary>
 /// <param name="a"></param>
 /// <param name="b"></param>
@@ -297,7 +297,7 @@ __global__ void flipud(T* d_data, int rows)
 
 
 /// <summary>
-/// 
+///
 /// </summary>
 /// <param name="handle"></param>
 /// <param name="d_vec"></param>
@@ -309,7 +309,7 @@ void getMax(cublasHandle_t handle, cuComplex* d_vec, int len, int* h_max_idx, cu
 
 
 /// <summary>
-/// 
+///
 /// </summary>
 /// <param name="handle"></param>
 /// <param name="d_vec"></param>
@@ -330,7 +330,7 @@ void dDataDisp(cuComplex* d_data, int rows, int cols);
 
 
 /// <summary>
-/// 
+///
 /// </summary>
 /// <param name="a"></param>
 /// <param name="abs"></param>
@@ -377,7 +377,7 @@ __global__ void elementwiseMultiplyConjA(cuComplex* a, cuComplex* b, cuComplex* 
 
 
 /// <summary>
-/// 
+///
 /// </summary>
 /// <param name="a">vector with length len_a</param>
 /// <param name="b">vector with length len_b</param>
@@ -448,7 +448,7 @@ __global__ void genHammingVec(float* hamming, int len);
 
 
 /// <summary>
-/// 
+///
 /// </summary>
 /// <param name="d_hamming"></param>
 /// <param name="range_num"></param>
@@ -690,7 +690,7 @@ public:
 	bool operator==(const pulseCompression& other) const = default;
 
 	/// <summary>
-	/// 
+	///
 	/// </summary>
 	/// <param name="d_dataW_echo"></param>
 	/// <param name="h_dataIQ_echo"></param>
@@ -806,7 +806,7 @@ public:
 	static float interpolate(const vec1D_INT& xData, const vec1D_FLT& yData, const int& x, const bool& extrapolate);
 
 	/// <summary>
-	/// 
+	///
 	/// </summary>
 	/// <param name="h_data"></param>
 	/// <param name="d_data"></param>
@@ -824,7 +824,7 @@ public:
 		const RadarParameters& paras, const vec1D_DBL& dataNOut, const int& frame_len, const int& frame_num, const int& overlap_len, const vec1D_INT& dataWFileSn);
 
 	/// <summary>
-	/// 
+	///
 	/// </summary>
 	/// <param name="dataWFileSn"></param>
 	/// <param name="dataNOut"></param>

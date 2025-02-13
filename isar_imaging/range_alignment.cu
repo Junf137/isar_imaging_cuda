@@ -185,7 +185,7 @@ __global__ void alignWithinStride(cuComplex* d_data, cuComplex* d_freq_mov_vec, 
 	int idx = blockIdx.x * blockDim.x + threadIdx.x;
 	int base_row_idx = blockIdx.z * stride * 2;
 	int row_idx = blockIdx.z * stride * 2 + stride + blockIdx.y;
-	
+
 	if (idx < cols) {
 		d_data[row_idx * cols + idx] = cuCmulf(d_data[row_idx * cols + idx], d_freq_mov_vec[base_row_idx * cols + idx]);
 	}
@@ -302,7 +302,7 @@ __global__ void genFreqCenteringVec(float* hamming, cuComplex* d_freq_centering_
 
 //void getCorrelation(float* d_vec_corr, float* d_vec_a, float* d_vec_b, int len, cufftHandle plan_one_echo_r2c, cufftHandle plan_one_echo_c2r)
 //{
-//	// * configuring data layout 
+//	// * configuring data layout
 //	int fft_len = static_cast<int>(len / 2) + 1;
 //
 //	dim3 block(DEFAULT_THREAD_PER_BLOCK);
@@ -548,4 +548,3 @@ __global__ void getARPMean(float* d_arp_ave, int* idx_1, float* arp, int idx_1_l
 	d_arp_ave[tid] = temp_sum;
 
 }
-

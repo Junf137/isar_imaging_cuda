@@ -202,7 +202,7 @@ void circshiftTime(T* d_data, int frag_len, int shift, int len);
 
 template <typename T>
 /// <summary>
-/// 
+///
 /// </summary>
 /// <param name="d_in"></param>
 /// <param name="d_out"></param>

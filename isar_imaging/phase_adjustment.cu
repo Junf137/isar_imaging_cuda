@@ -225,7 +225,7 @@ void fastEntropy(cuComplex* d_data, const int& echo_num, const int& range_num, c
 	thrust::device_ptr<float> thr_sqr_img = thrust::device_pointer_cast(d_sqr_img);
 	thrust::transform(thrust::device, thr_img, thr_img + data_num, thr_sqr_img, \
 		[]__host__ __device__(const comThr & x) { return powf(thrust::abs(x), 2); });
-	
+
 	// sqr_image_sum_col = sum(sqr_img);
 	float* d_sqr_img_sum_col = g_d_range_num_cut_flt_1;
 	thrust::device_ptr<float> thr_sqr_img_sum_col = thrust::device_pointer_cast(d_sqr_img_sum_col);

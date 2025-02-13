@@ -20,7 +20,7 @@ extern float* g_d_data_num_flt_2;
 
 
 /// <summary>
-/// 
+///
 /// </summary>
 /// <param name="d_data"></param>
 /// <param name="paras"></param>
@@ -81,7 +81,7 @@ void cztRange(cuComplex* d_czt, cuComplex* d_data, cuComplex* d_w, cuComplex* d_
 
 
 /// <summary>
-/// 
+///
 /// </summary>
 /// <param name="d_w"></param>
 /// <param name="d_a"></param>

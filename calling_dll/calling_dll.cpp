@@ -3,7 +3,7 @@
 // Duplicate from common.cuh
 enum DATA_TYPE
 {
-    DEFAULT = 0,	// 
+    DEFAULT = 0,	//
     IFDS    = 1,	// IFDS data
     STRETCH = 2		// stretch data
 };
@@ -23,7 +23,7 @@ int main()
     int sampling_stride = 1;
     int window_head = 0;
     int window_len = 256;
-    
+
     int polar_type = static_cast<int>((dir_path.find("210425235341_047414_1383_00") == std::string::npos) ? POLAR_TYPE::LHP : POLAR_TYPE::RHP);
     int data_type = static_cast<int>((dir_path.find("210425235341_047414_1383_00") == std::string::npos) ? DATA_TYPE::IFDS : DATA_TYPE::STRETCH);
     int option_alignment = 0;
@@ -78,7 +78,7 @@ int main()
 
         // Write h_img data into file
         //writeFileFLT(dir_path + "\\intermediate\\final_" + std::to_string(i + 1) + std::string(".dat"), img.data(), window_len * 512);
-        
+
         window_head += imaging_stride;
     }
 

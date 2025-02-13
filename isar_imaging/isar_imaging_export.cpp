@@ -48,10 +48,10 @@ int gpuDevInit()
 int dataParsing(vec1D_DBL* dataN, vec1D_FLT* turnAngle, int* frame_len, int* frame_num, \
     const std::string& dir_path, const int& polar_type, const int& data_type)
 {
-#ifdef SEPARATE_TIMEING_
+#ifdef SEPARATE_TIMING_
     std::cout << "---* Starting Data Parsing *---\n";
     auto t_data_parsing_1 = std::chrono::high_resolution_clock::now();
-#endif // SEPARATE_TIMEING_
+#endif // SEPARATE_TIMING_
 
     io.ioInit(&INTERMEDIATE_DIR, dir_path, static_cast<POLAR_TYPE>(polar_type), static_cast<DATA_TYPE>(data_type));
 
@@ -59,12 +59,12 @@ int dataParsing(vec1D_DBL* dataN, vec1D_FLT* turnAngle, int* frame_len, int* fra
 
     io.readKuIFDSAllNB(dataN, turnAngle, paras, *frame_len, *frame_num);
 
-#ifdef SEPARATE_TIMEING_
+#ifdef SEPARATE_TIMING_
     auto t_data_parsing_2 = std::chrono::high_resolution_clock::now();
     std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(t_data_parsing_2 - t_data_parsing_1).count() << "ms\n";
     std::cout << "---* Data Parsing Over *---\n";
     std::cout << "************************************\n\n";
-#endif // SEPARATE_TIMEING_
+#endif // SEPARATE_TIMING_
 
     return EXIT_SUCCESS;
 }
@@ -73,10 +73,10 @@ int dataParsing(vec1D_DBL* dataN, vec1D_FLT* turnAngle, int* frame_len, int* fra
 int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
     const vec1D_DBL& dataN, const vec1D_FLT& turnAngle, const int& frame_len, const int& frame_num, const int& sampling_stride, const int& window_head, const int& window_len, int& imaging_stride, const int& data_type)
 {
-#ifdef SEPARATE_TIMEING_
+#ifdef SEPARATE_TIMING_
     std::cout << "---* Starting Data Extracting *---\n";
     auto t_data_extract_1 = std::chrono::high_resolution_clock::now();
-#endif // SEPARATE_TIMEING_
+#endif // SEPARATE_TIMING_
 
     bool uni_sampling = true;
     if (uni_sampling == true) {
@@ -107,12 +107,12 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnA
 
     io.getSignalData(dataW->data(), d_data, d_data_old, d_data_proc, d_velocity, paras, *dataNOut, frame_len, frame_num, overlap_len, *dataWFileSn);
 
-#ifdef SEPARATE_TIMEING_
+#ifdef SEPARATE_TIMING_
     auto t_data_extract_2 = std::chrono::high_resolution_clock::now();
     std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(t_data_extract_2 - t_data_extract_1).count() << "ms\n";
     std::cout << "---* Data Extracting Over *---\n";
     std::cout << "************************************\n\n";
-#endif // SEPARATE_TIMEING_
+#endif // SEPARATE_TIMING_
 
     return EXIT_SUCCESS;
 }
@@ -121,10 +121,10 @@ int dataExtracting(vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnA
 void imagingMemInit(vec1D_FLT* img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut, vec1D_FLT* turnAngleOut, vec1D_COM_FLT* dataW, \
     const int& window_len, const int& frame_len, const int& data_type, const bool& if_hpc, const bool& if_hrrp)
 {
-#ifdef SEPARATE_TIMEING_
+#ifdef SEPARATE_TIMING_
     std::cout << "---* Starting GPU Memory Initialization *---\n";
     auto t_init_gpu_1 = std::chrono::high_resolution_clock::now();
-#endif // SEPARATE_TIMEING_
+#endif // SEPARATE_TIMING_
 
     paras.echo_num = window_len;
     switch (static_cast<DATA_TYPE>(data_type)) {
@@ -140,7 +140,7 @@ void imagingMemInit(vec1D_FLT* img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut,
     paras.range_num_cut = RANGE_NUM_CUT;
     paras.data_num = paras.echo_num * paras.range_num;
     paras.data_num_cut = paras.echo_num * paras.range_num_cut;
-    
+
     if (paras.echo_num > MAX_THREAD_PER_BLOCK) {
         std::cout << "[main/WARN] echo_num > MAX_THREAD_PER_BLOCK: " << MAX_THREAD_PER_BLOCK << ", please double-check the data, then reconfiguring the parameters." << std::endl;
         return;
@@ -161,7 +161,7 @@ void imagingMemInit(vec1D_FLT* img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut,
     if (data_type == static_cast<int>(DATA_TYPE::STRETCH)) {
         dataW->resize(paras.data_num);
     }
-    
+
     handles.handleInit(paras.echo_num, paras.range_num);
 
     d_data = nullptr;
@@ -196,12 +196,12 @@ void imagingMemInit(vec1D_FLT* img, vec1D_INT* dataWFileSn, vec1D_DBL* dataNOut,
     checkCudaErrors(cudaMalloc((void**)&g_d_range_num_cut_flt_2, sizeof(float) * paras.range_num_cut));
     checkCudaErrors(cudaMalloc((void**)&g_d_range_num_cut_com_flt_1, sizeof(cuComplex) * paras.range_num_cut));
 
-#ifdef SEPARATE_TIMEING_
+#ifdef SEPARATE_TIMING_
     auto t_init_gpu_2 = std::chrono::high_resolution_clock::now();
     std::cout << "[Time consumption] " << std::chrono::duration_cast<std::chrono::milliseconds>(t_init_gpu_2 - t_init_gpu_1).count() << "ms\n";
     std::cout << "---* GPU Memory Initialization Over *---\n";
     std::cout << "************************************\n\n";
-#endif // SEPARATE_TIMEING_
+#endif // SEPARATE_TIMING_
 }
 
 
